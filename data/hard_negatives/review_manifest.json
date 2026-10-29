@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "review_policy": "Only entries with status=reviewed may enter an experiment training split.",
+  "entries": [
+    {
+      "image": "vest_nohelmet.jpg",
+      "label": "vest_nohelmet.txt",
+      "status": "manual_review_required",
+      "categories": ["bare_head", "held_helmet", "worn_vest"],
+      "notes": "Candidate manual annotation exists, but requires independent human review before training use."
+    }
+  ]
+}

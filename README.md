@@ -141,9 +141,22 @@ Run:
 streamlit run app/dashboard.py
 ```
 
-Note:
-- The current dashboard code has fields that are out of sync with the active inference pipeline.
-- For stable operation, use the CLI commands above.
+The dashboard uses the same `FrameProcessor` pipeline as the CLI and provides
+Overview, Image Analysis, Batch Testing, Evaluation, and How It Works pages.
+Uploads are processed locally. Run it from the project root after activating
+`.venv`.
+
+## Tests and Evaluation (Windows PowerShell)
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe scripts\smoke_test.py
+.\.venv\Scripts\python.exe scripts\evaluate_dataset.py
+```
+
+The evaluation command reads the polygon labels in
+`data/Construction Site.v1i.yolov8/test/`, converts them to enclosing boxes,
+and writes `outputs/evaluation_report.json`. It reports raw PPE-model metrics,
+filtered pipeline PPE metrics, and a separate end-to-end violation summary.
 
 ## Dataset
 This repo includes a YOLO-format dataset in:
@@ -154,6 +167,129 @@ Classes from `data.yaml`:
 - `vest`
 - `without_helmet`
 - `without_vest`
+
+### Helmet data collection and isolated experiments
+
+The production checkpoint is a four-class YOLO **detection** model:
+`models/trained/best.pt`. The source labels use YOLO polygon coordinates;
+Ultralytics converts those polygons to object boxes for this detection model.
+Keep the existing class IDs unchanged:
+
+| ID | Class | Annotation target |
+|---:|---|---|
+| 0 | `helmet` | The physical safety-helmet object itself, whether worn, held, or resting nearby. Do not label hair or an ordinary cap as a helmet. |
+| 1 | `vest` | The visible reflective/safety vest object. Label it even when the image also contains a missing-helmet example. |
+| 2 | `without_helmet` | The visible head/head region of a person who is not wearing a safety helmet. Do not surround the whole person or a helmet held nearby. |
+| 3 | `without_vest` | The visible torso/person region representing the dataset's existing missing-vest convention. Review against nearby labels before adding examples. |
+
+For helmet work, collect and independently review examples of bare heads with
+different hair colours and bald scalps, caps/beanies/headphones, helmets held
+in hands or resting nearby, and genuine worn helmets across colour, angle,
+distance, lighting, and occlusion. Label every visible relevant object so an
+unlabelled vest or helmet is not treated as background. Keep reviewed images
+outside the official validation and test splits.
+
+The repeatable workflow is manifest-gated. A human must change an entry in
+`data/hard_negatives/review_manifest.json` from `manual_review_required` to
+`reviewed` only after inspecting the image and label. The preparation command
+requires at least 12 reviewed images and all required scene categories; it
+also rejects exact and perceptual near-duplicates of the official splits.
+The current single fixture intentionally fails this sufficiency check.
+
+Run these commands in Windows PowerShell:
+
+```powershell
+Set-Location 'C:\Users\Sarbagya\Downloads\ppe_detection'
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\validate_hard_negatives.py'
+
+# After manual review, update review_manifest.json and rerun preparation.
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\prepare_helmet_experiment.py' `
+  --dataset 'C:\Users\Sarbagya\Downloads\ppe_detection\data\Construction Site.v1i.yolov8' `
+  --hard-negatives 'C:\Users\Sarbagya\Downloads\ppe_detection\data\hard_negatives' `
+  --manifest 'C:\Users\Sarbagya\Downloads\ppe_detection\data\hard_negatives\review_manifest.json' `
+  --output 'C:\Users\Sarbagya\Downloads\ppe_detection\data\helmet_reviewed_experiment'
+
+# Train only the isolated experiment; this never overwrites best.pt.
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\train_helmet_candidate.py' `
+  --data 'C:\Users\Sarbagya\Downloads\ppe_detection\data\helmet_reviewed_experiment\data.yaml' `
+  --weights 'C:\Users\Sarbagya\Downloads\ppe_detection\models\trained\best.pt' `
+  --project 'C:\Users\Sarbagya\Downloads\ppe_detection\runs' `
+  --name 'helmet_reviewed_candidate' --epochs 50 --imgsz 640 --batch 8 --device cpu
+
+# Select a candidate using validation only.
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\evaluate_dataset.py' `
+  --dataset 'C:\Users\Sarbagya\Downloads\ppe_detection\data\helmet_reviewed_experiment' `
+  --split valid `
+  --weights 'C:\Users\Sarbagya\Downloads\ppe_detection\runs\helmet_reviewed_candidate\weights\best.pt' `
+  --output 'C:\Users\Sarbagya\Downloads\ppe_detection\outputs\helmet_candidate_valid.json'
+
+# Only after candidate selection, evaluate the untouched test split.
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\evaluate_dataset.py' `
+  --dataset 'C:\Users\Sarbagya\Downloads\ppe_detection\data\helmet_reviewed_experiment' `
+  --split test `
+  --weights 'C:\Users\Sarbagya\Downloads\ppe_detection\runs\helmet_reviewed_candidate\weights\best.pt' `
+  --output 'C:\Users\Sarbagya\Downloads\ppe_detection\outputs\helmet_candidate_test.json'
+```
+
+Do not promote a candidate based only on a personal demonstration image or a
+passing unit test. Compare raw and filtered per-class precision, recall, F1,
+mAP, false-positive helmet detections, and missed genuine helmets on the same
+validation split before looking at the held-out test results.
+
+### Optional head-region helmet classifier
+
+The project also contains a separate two-class head-crop classifier pipeline.
+It is disabled by default with `head_classifier.enabled: false`, so the
+production PPE detector and dashboard fallback remain unchanged. It uses
+`helmet_worn` and `no_helmet` ImageFolder classes and a face-anchored head
+localizer. If a face cannot be localized, the integration returns
+`needs_review`; it does not silently assume that the top of a person box is a
+head. A held or nearby helmet is outside the head crop and cannot establish
+that the person is wearing one.
+
+The installed environment has CPU PyTorch and torchvision. The current
+repository does not yet contain enough manually reviewed head crops to train a
+candidate. Check the empty split folders and manifest with:
+
+```powershell
+Set-Location 'C:\Users\Sarbagya\Downloads\ppe_detection'
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\validate_head_classifier_dataset.py' `
+  --data 'C:\Users\Sarbagya\Downloads\ppe_detection\data\head_classifier' `
+  --min-per-class 1
+```
+
+Add manually reviewed head crops to `data/head_classifier/manifest.csv` and
+set `review_status` to `reviewed` only after visual inspection. Use separate
+source scenes for `train`, `val`, and `test`; do not copy the same person or
+near-duplicate frame into multiple splits. Then prepare the folders:
+
+```powershell
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\prepare_head_classifier_dataset.py' `
+  --manifest 'C:\Users\Sarbagya\Downloads\ppe_detection\data\head_classifier\manifest.csv' `
+  --output 'C:\Users\Sarbagya\Downloads\ppe_detection\data\head_classifier_reviewed' `
+  --min-train-per-class 20 --min-eval-per-class 10
+```
+
+Train only after preparation succeeds:
+
+```powershell
+& 'C:\Users\Sarbagya\Downloads\ppe_detection\.venv\Scripts\python.exe' `
+  'C:\Users\Sarbagya\Downloads\ppe_detection\scripts\train_head_classifier.py' `
+  --data 'C:\Users\Sarbagya\Downloads\ppe_detection\data\head_classifier_reviewed' `
+  --output 'C:\Users\Sarbagya\Downloads\ppe_detection\runs\head_classifier_candidate' `
+  --epochs 20 --batch 16 --image-size 224 --device cpu
+```
+
+Only after held-out evaluation supports promotion should you set
+`head_classifier.enabled: true` and point `checkpoint_path` to the candidate
+checkpoint. The existing `models/trained/best.pt` remains the fallback.
 
 ## Packaging Commands (optional)
 Using `pyproject.toml`:

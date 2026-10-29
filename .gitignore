@@ -27,6 +27,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
 
 # IDEs
 .vscode/
@@ -75,6 +76,10 @@ Thumbs.db
 output_*.jpg
 result_*.jpg
 test_result.*
+outputs/
+demo_images/
+data/head_classifier/crops/
+data/helmet_hard_negative_experiment/
 
 # Environment variables
 .env

@@ -1,18 +1,9 @@
-"""
-Streamlit dashboard for the PPE compliance detection project.
-
-The dashboard is aligned with the current object-based pipeline:
-- detections are class-based (`helmet`, `vest`, `without_helmet`, `without_vest`)
-- violations are direct `without_*` detections
-- violation images may be saved to disk
-"""
+"""Local Streamlit dashboard backed by the existing FrameProcessor pipeline."""
 
 from __future__ import annotations
 
 import json
-import os
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -22,553 +13,354 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 
-# Add project root to import path
-sys.path.append(str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.processor import FrameProcessor
-from src.utils import create_detection_summary, load_config, log_violation
+from src.utils import create_detection_summary, format_scan_timestamp, load_config, log_violation
 
-
-PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+EVALUATION_PATH = PROJECT_ROOT / "outputs" / "evaluation_report.json"
+CLASS_ORDER = ("person", "helmet", "vest", "without_helmet", "without_vest")
+
+CONFIG = load_config(str(CONFIG_PATH))
+st.set_page_config(page_title=CONFIG.get("dashboard", {}).get("title", "PPE Detection"),
+                   page_icon=CONFIG.get("dashboard", {}).get("page_icon", "PPE"),
+                   layout=CONFIG.get("dashboard", {}).get("layout", "wide"))
+st.markdown("""
+<style>
+body { background: #f5f1e8; }
+.hero { padding: 1.1rem 1.3rem; border-radius: 12px; color: white;
+        background: linear-gradient(135deg, #1f2937, #9a3412); margin-bottom: 1rem; }
+</style>
+""", unsafe_allow_html=True)
 
 
-def get_dashboard_config(config: dict) -> dict:
-    """Return dashboard config with safe fallbacks."""
-    return config.get(
-        "dashboard",
-        {
-            "title": "PPE Compliance Detection System",
-            "page_icon": "PPE",
-            "layout": "wide",
-        },
-    )
-
-
-def get_config_version() -> int:
-    """Use config file mtime to invalidate Streamlit cache when config changes."""
-    return CONFIG_PATH.stat().st_mtime_ns
-
-
-BASE_CONFIG = load_config(str(CONFIG_PATH))
-PAGE_CONFIG = get_dashboard_config(BASE_CONFIG)
-
-st.set_page_config(
-    page_title=PAGE_CONFIG.get("title", "PPE Compliance Detection System"),
-    page_icon=PAGE_CONFIG.get("page_icon", "PPE"),
-    layout=PAGE_CONFIG.get("layout", "wide"),
-    initial_sidebar_state="expanded",
-)
-
-
-st.markdown(
-    """
-    <style>
-        :root {
-            --bg-soft: #f5efe6;
-            --panel: #fffaf3;
-            --ink: #1f2937;
-            --accent: #b45309;
-            --accent-dark: #7c2d12;
-            --alert: #b91c1c;
-            --ok: #166534;
-            --line: #eadfce;
-        }
-        .main-header {
-            font-size: 2.2rem;
-            text-align: center;
-            padding: 1rem 1.25rem;
-            background: linear-gradient(135deg, #1f2937 0%, #9a3412 100%);
-            color: white;
-            border-radius: 14px;
-            margin-bottom: 1.5rem;
-            letter-spacing: 0.02em;
-        }
-        .status-card {
-            padding: 0.9rem 1rem;
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            background: var(--panel);
-            color: var(--ink);
-        }
-        .violation-alert {
-            background-color: #fef2f2;
-            padding: 1rem;
-            border-radius: 12px;
-            border: 1px solid #fecaca;
-            color: var(--alert);
-            font-weight: 600;
-        }
-        .compliant-alert {
-            background-color: #f0fdf4;
-            padding: 1rem;
-            border-radius: 12px;
-            border: 1px solid #bbf7d0;
-            color: var(--ok);
-            font-weight: 600;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-def render_image(image: object, caption: str | None = None) -> None:
-    """Render images across Streamlit versions."""
-    try:
-        st.image(image, caption=caption, use_container_width=True)
-    except TypeError:
-        # Streamlit 1.28 uses `use_column_width` for responsive images.
-        st.image(image, caption=caption, use_column_width=True)
+def absolute_config(config: dict) -> dict:
+    config = json.loads(json.dumps(config))
+    config["model"]["weights_path"] = str((PROJECT_ROOT / config["model"]["weights_path"]).resolve())
+    config["model"]["person_model_path"] = str((PROJECT_ROOT / config["model"].get("person_model_path", "yolov8n.pt")).resolve())
+    if config.get("head_classifier", {}).get("checkpoint_path"):
+        config["head_classifier"]["checkpoint_path"] = str((PROJECT_ROOT / config["head_classifier"]["checkpoint_path"]).resolve())
+    for key in ("violations_dir", "log_file"):
+        if config.get("storage", {}).get(key):
+            config["storage"][key] = str((PROJECT_ROOT / config["storage"][key]).resolve())
+    return config
 
 
 @st.cache_resource
-def load_processor(_config_version: int) -> tuple[FrameProcessor, dict]:
-    """Load config and processor once per session."""
-    config = load_config(str(CONFIG_PATH))
+def load_processor(config_mtime: int) -> FrameProcessor:
+    config = absolute_config(load_config(str(CONFIG_PATH)))
     model_path = config["model"]["weights_path"]
-
-    if not os.path.exists(model_path):
-        st.error(f"Model not found at: {model_path}")
-        st.info("Train or place the model first, then rerun the dashboard.")
-        st.stop()
-
-    processor = FrameProcessor(config, model_path)
-    return processor, config
+    if not Path(model_path).exists():
+        raise FileNotFoundError(model_path)
+    return FrameProcessor(config, model_path)
 
 
-def apply_runtime_settings(
-    processor: FrameProcessor,
-    config: dict,
-    confidence_threshold: float,
-    iou_threshold: float,
-    save_violations: bool,
-) -> None:
-    """Apply sidebar settings to the cached processor instance."""
-    config["model"]["confidence_threshold"] = confidence_threshold
-    config["model"]["iou_threshold"] = iou_threshold
-    config["storage"]["save_violations"] = save_violations
-
-    processor.detector.conf_threshold = confidence_threshold
-    processor.detector.iou_threshold = iou_threshold
-    processor.save_violations = save_violations
-
-
-def build_image_log_entry(result: dict, source_name: str, saved_path: str | None) -> dict:
-    """Build a stable log record from an image inference result."""
-    detection_summary = create_detection_summary(result["detections"])
-    return {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "source": source_name,
-        "source_type": "image",
-        "violation_count": result["violations"]["violation_count"],
-        "compliance_rate": result["violations"]["compliance_rate"],
-        "image_path": saved_path,
-        "detection_summary": detection_summary,
-        "violations": result["violations"]["violations"],
-    }
-
-
-def append_image_log(processor: FrameProcessor, result: dict, source_name: str) -> None:
-    """Persist image detection metadata for the statistics page."""
-    log_file = processor.config["storage"].get("log_file")
-    if not log_file:
-        return
-
-    saved_path = None
-    if result["violations"]["violation_count"] > 0:
-        violations_dir = Path(processor.violations_dir)
-        if violations_dir.exists():
-            images = sorted(
-                violations_dir.glob("*.jpg"),
-                key=lambda path: path.stat().st_mtime,
-                reverse=True,
-            )
-            if images:
-                saved_path = str(images[0])
-
-    log_violation(log_file, build_image_log_entry(result, source_name, saved_path))
-
-
-def load_logs(log_file: str) -> list[dict]:
-    """Load the violation log file safely."""
-    if not log_file or not os.path.exists(log_file) or os.path.getsize(log_file) == 0:
+def read_history(processor: FrameProcessor) -> list[dict]:
+    path = Path(processor.config["storage"].get("log_file", ""))
+    if not path.exists():
         return []
-
     try:
-        with open(log_file, "r", encoding="utf-8") as file:
-            data = json.load(file)
-    except (json.JSONDecodeError, OSError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return []
-
     return data if isinstance(data, list) else []
 
 
-def summarize_logs(logs: list[dict]) -> dict:
-    """Aggregate statistics from saved logs."""
-    total_records = len(logs)
-    total_violations = sum(int(log.get("violation_count", 0)) for log in logs)
-    records_with_violations = sum(1 for log in logs if int(log.get("violation_count", 0)) > 0)
-    avg_violations = total_violations / total_records if total_records else 0.0
-    return {
-        "total_records": total_records,
-        "total_violations": total_violations,
-        "records_with_violations": records_with_violations,
-        "average_violations_per_record": avg_violations,
-    }
+def append_history(processor: FrameProcessor, result: dict, source: str) -> None:
+    log_path = processor.config["storage"].get("log_file")
+    if not log_path:
+        return
+    scan_ts = result.get("scan_timestamp") or result.get("timestamp") or datetime.now().astimezone().isoformat()
+    log_violation(log_path, {
+        "timestamp": scan_ts,
+        "scanned_at": format_scan_timestamp(scan_ts),
+        "source": source,
+        "source_type": "image",
+        "violation_count": result["violations"]["violation_count"],
+        "compliance_rate": result["violations"]["compliance_rate"],
+        "detection_summary": create_detection_summary(result["detections"]),
+        "violations": result["violations"]["violations"],
+        "unverified_candidates": result["violations"].get("unverified_candidates", []),
+    })
 
 
-def list_violation_images(violations_dir: str) -> list[Path]:
-    """Return saved violation images sorted by most recent first."""
-    directory = Path(violations_dir)
-    if not directory.exists():
-        return []
-
-    image_files = [
-        path for path in directory.iterdir() if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
-    ]
-    return sorted(image_files, key=lambda path: path.stat().st_mtime, reverse=True)
-
-
-def render_detection_details(result: dict, show_confidence: bool) -> None:
-    """Render detection and violation details for image results."""
-    detection_summary = create_detection_summary(result["detections"])
-    violations = result["violations"]["violation_count"]
-    compliance = result["violations"]["compliance_rate"]
-    total_objects = result.get("summary", {}).get(
-        "total_detections",
-        detection_summary["total_detections"],
+def process_uploaded_image(processor: FrameProcessor, image_bytes: bytes, source_name: str) -> dict:
+    """Decode an uploaded image and run the same pipeline used by the CLI."""
+    image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError(f"Could not decode uploaded image: {source_name}")
+    result = processor.process_frame(
+        image,
+        save_violation=processor.save_violations,
+        source_name=source_name,
     )
+    append_history(processor, result, source_name)
+    return result
 
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    with metric_col1:
-        st.metric("Objects Detected", total_objects)
-    with metric_col2:
-        st.metric("Violations", violations)
-    with metric_col3:
-        st.metric("Compliance Rate", f"{compliance:.1f}%")
 
-    if total_objects == 0:
-        st.warning("No objects were confidently detected in this frame.")
-    elif violations > 0:
-        st.markdown(
-            f'<div class="violation-alert">{violations} PPE violation(s) detected.</div>',
-            unsafe_allow_html=True,
-        )
+def render_result(result: dict, show_confidence: bool = True) -> None:
+    detections = result["detections"]
+    violations = result["violations"]
+    incidents = result.get("incidents", {})
+    alert = result.get("alert", {})
+    summary = create_detection_summary(detections)
+
+    # Scan Timestamp Header
+    scan_ts = result.get("scan_timestamp") or result.get("timestamp")
+    st.info(f"🕒 **Scanned at:** {format_scan_timestamp(scan_ts)}")
+
+    # Status Notification Banner
+    if incidents.get("validated", False) and incidents.get("status") == "POTENTIAL_INJURY_SUSPECTED":
+        st.error("POTENTIAL INCIDENT / INJURY DETECTED (URGENT HUMAN REVIEW REQUIRED)")
+    elif violations.get("violation_count"):
+        st.error(f"{violations['violation_count']} confirmed PPE violation(s) detected")
+    elif violations.get("status") == "needs_review":
+        st.warning("Helmet / head evidence needs review; uncertain candidates are not treated as compliance.")
+    elif violations.get("status") == "evaluated_with_uncertainty":
+        st.warning("Some PPE compliance statuses are uncertain because no positive or explicit negative detection was associated.")
+    elif violations.get("status") == "person_missing":
+        st.warning("No person was associated. PPE-only detections remain unverified and are not counted as confirmed violations.")
     else:
-        st.markdown(
-            '<div class="compliant-alert">No PPE violations detected in this frame.</div>',
-            unsafe_allow_html=True,
-        )
+        st.success("No confirmed PPE violations. Personnel compliant.")
 
-    with st.expander("Detection Summary", expanded=True):
-        st.json(detection_summary)
+    # Alert & Dispatch Status Card
+    if alert.get("sent"):
+        st.success(f"Safety Alert Dispatched to Manager (Severity: {alert.get('severity', 'NORMAL')})")
+    elif alert.get("throttled"):
+        st.info(f"Notification Status: {alert.get('status')}")
+    elif alert.get("status") == "Email not configured":
+        st.info("Notification Status: Email not configured (Local incident logged). Add credentials in .env to enable manager emails.")
+    elif alert.get("status") and alert.get("status") not in ("Not triggered", "No actionable finding triggered"):
+        st.warning(f"Notification Status: {alert.get('status')}")
 
-    if result["violations"]["violations"]:
-        with st.expander("Violation Details", expanded=True):
-            for index, violation in enumerate(result["violations"]["violations"], start=1):
-                label = violation["type"].replace("_", " ").title()
-                confidence = violation.get("conf", 0.0)
-                if show_confidence:
-                    st.write(f"{index}. {label} ({confidence:.2%})")
-                else:
-                    st.write(f"{index}. {label}")
+    # Metrics
+    cols = st.columns(4)
+    cols[0].metric("Persons", summary["person"])
+    ppe_count = sum(summary.get(name, 0) for name in ("helmet", "vest", "without_helmet", "without_vest"))
+    cols[1].metric("Filtered PPE detections", ppe_count)
+    cols[2].metric("Confirmed Violations", violations["violation_count"])
+    cols[3].metric("Compliance", f'{violations["compliance_rate"]:.1f}%')
+
+    # Blood / Incident Status Section (Truthful disclosure, Phase 1 & 2)
+    if not incidents.get("available", False):
+        st.info("ℹ️ **Blood / Injury Detection Status:** Reliable blood detection is currently unavailable. "
+                "The simple color heuristic is disabled in production to eliminate false alerts from hazard tape, "
+                "red tools, and clothing. *Notice: This scan has not been evaluated for blood or injuries; "
+                "absence of alerts does not confirm that no blood or injury is present.*")
+    elif incidents.get("validated", False) and incidents.get("candidates"):
+        st.subheader("Validated Incident / Injury Candidates")
+        st.dataframe(pd.DataFrame(incidents["candidates"]), use_container_width=True, hide_index=True)
+        st.caption(incidents.get("limitations", ""))
+    elif incidents.get("candidates"):
+        with st.expander("Experimental Red-Region Debug Diagnostics (NOT Blood Probability)", expanded=False):
+            st.dataframe(pd.DataFrame(incidents["candidates"]), use_container_width=True, hide_index=True)
+            st.caption(incidents.get("limitations", ""))
+
+    # PPE Detections Table
+    rows = []
+    verified_helmet_indices = set()
+    for person in violations.get("person_results", []):
+        if person.get("has_helmet"):
+            verified_helmet_indices.update(
+                item.get("item_index") for item in person.get("associations", {}).get("helmet", [])
+            )
+    for class_name in CLASS_ORDER:
+        for item_index, item in enumerate(detections.get(class_name, [])):
+            display_class = class_name
+            if class_name == "helmet" and item_index not in verified_helmet_indices:
+                display_class = "UNVERIFIED HELMET CANDIDATE"
+            rows.append({"class": display_class, "confidence": item.get("confidence", item.get("conf", 0.0)), "bbox": item["bbox"]})
+    if rows:
+        table = pd.DataFrame(rows)
+        if show_confidence:
+            table["confidence"] = table["confidence"].map(lambda value: f"{value:.1%}")
+        st.dataframe(table, use_container_width=True, hide_index=True)
+    else:
+        st.info("No filtered detections for this image.")
+
+    if violations.get("unverified_candidates"):
+        st.subheader("Unverified PPE candidates")
+        st.dataframe(pd.DataFrame(violations["unverified_candidates"]), use_container_width=True, hide_index=True)
+
+    review_rows = [
+        {
+            "person_id": item.get("person_id"),
+            "review_reasons": ", ".join(item.get("review_reasons", [])),
+            "uncertain": ", ".join(item.get("uncertain", [])),
+        }
+        for item in violations.get("person_results", [])
+        if item.get("needs_review")
+    ]
+    if review_rows:
+        st.subheader("Needs review")
+        st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
+
+    if violations.get("violations"):
+        st.subheader("Confirmed violation details")
+        st.dataframe(pd.DataFrame(violations["violations"]), use_container_width=True, hide_index=True)
+
+    # Collapsible Diagnostics Section (Phase 1 Requirement)
+    with st.expander("Diagnostics & Raw Model Predictions", expanded=False):
+        st.write("**Head Region Verifications:**")
+        st.json(result.get("head_verifications", []))
+        st.write("**Raw Detector Diagnostics:**")
+        st.json(result.get("diagnostics", {}))
+
+
+def image_page(processor: FrameProcessor) -> None:
+    st.header("Image Analysis")
+    uploaded = st.file_uploader("Upload a JPG or PNG", type=["jpg", "jpeg", "png"], key="single_image")
+    if uploaded is None:
+        st.info("Choose an image to begin analysis. Files are processed locally.")
+        return
+    original = Image.open(uploaded).convert("RGB")
+    if st.button("Run inference", type="primary"):
+        with st.spinner("Running the existing inference pipeline..."):
+            result = process_uploaded_image(processor, uploaded.getvalue(), uploaded.name)
+        st.session_state["image_result"] = result
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(original, caption="Original image", use_column_width=True)
+    with col2:
+        result = st.session_state.get("image_result")
+        if not result:
+            st.info("Run inference to see the annotated result.")
+            return
+        annotated = cv2.cvtColor(result["annotated_frame"], cv2.COLOR_BGR2RGB)
+        st.image(annotated, caption="Annotated result", use_column_width=True)
+        encoded = cv2.imencode(".jpg", result["annotated_frame"])[1].tobytes()
+        btn_cols = st.columns(2)
+        btn_cols[0].download_button("Download annotated image", encoded, "ppe_result.jpg", "image/jpeg")
+        report_path = result.get("report_path")
+        if report_path and Path(report_path).is_file():
+            pdf_bytes = Path(report_path).read_bytes()
+            btn_cols[1].download_button("Download PDF Report", pdf_bytes, Path(report_path).name, "application/pdf")
+    if st.session_state.get("image_result"):
+        render_result(st.session_state["image_result"])
+
+
+def batch_page(processor: FrameProcessor) -> None:
+    st.header("Batch Testing")
+    uploads = st.file_uploader("Upload several JPG/PNG images", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="batch_images")
+    if not uploads:
+        st.info("Select multiple images to build a local results table.")
+        return
+    if st.button("Process batch", type="primary"):
+        rows = []
+        for uploaded in uploads:
+            image = cv2.imdecode(np.frombuffer(uploaded.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+            if image is None:
+                rows.append({"image": uploaded.name, "status": "unreadable"})
+                continue
+            result = process_uploaded_image(processor, uploaded.getvalue(), uploaded.name)
+            rows.append({"image": uploaded.name, "status": result["violations"]["status"], "persons": result["violations"]["person_count"],
+                         "confirmed_violations": result["violations"]["violation_count"], "unverified_candidates": len(result["violations"].get("unverified_candidates", [])),
+                         "compliance_rate": result["violations"]["compliance_rate"]})
+        st.session_state["batch_rows"] = rows
+    rows = st.session_state.get("batch_rows")
+    if rows:
+        dataframe = pd.DataFrame(rows)
+        st.dataframe(dataframe, use_container_width=True, hide_index=True)
+        st.download_button("Download batch CSV", dataframe.to_csv(index=False), "ppe_batch_results.csv", "text/csv")
+
+
+def overview_page(processor: FrameProcessor) -> None:
+    st.header("Overview")
+    history = read_history(processor)
+    if not history:
+        st.info("No saved analysis history yet. Run Image Analysis or Batch Testing first.")
+        return
+    total = sum(int(item.get("violation_count", 0)) for item in history)
+    cards = st.columns(4)
+    cards[0].metric("Processed runs", len(history))
+    cards[1].metric("Confirmed violations", total)
+    cards[2].metric("Runs with violations", sum(item.get("violation_count", 0) > 0 for item in history))
+    cards[3].metric("Average violations", f"{total / len(history):.2f}")
+    table = pd.DataFrame(history)
+    st.subheader("Saved analysis history")
+    st.dataframe(table, use_container_width=True, hide_index=True)
+
+
+def evaluation_page() -> None:
+    st.header("Evaluation")
+    if not EVALUATION_PATH.exists():
+        st.info("No evaluation report exists yet. Run the dataset evaluation command below.")
+        st.code("python scripts/evaluate_dataset.py", language="powershell")
+        return
+    report = json.loads(EVALUATION_PATH.read_text(encoding="utf-8"))
+    st.caption(f'{report.get("image_count", 0)} labelled test images from {report.get("dataset", "")}.')
+    for key, title in (("raw_ppe_model", "Raw PPE-model metrics"), ("filtered_pipeline_ppe", "Filtered pipeline PPE metrics")):
+        group = report.get("metrics", {}).get(key)
+        if not group:
+            continue
+        st.subheader(title)
+        rows = []
+        for class_name, metrics in group.get("per_class", {}).items():
+            rows.append({"class": class_name, "ground_truth": metrics.get("ground_truth", 0), "predictions": metrics.get("predictions", 0),
+                         "precision": metrics.get("precision", 0.0), "recall": metrics.get("recall", 0.0), "f1": metrics.get("f1", 0.0),
+                         "AP50": metrics.get("ap50", 0.0), "mAP50-95": metrics.get("map50_95", 0.0)})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.metric("mAP50-95", f'{group.get("map50_95", 0.0):.3f}')
+    st.subheader("End-to-end pipeline summary")
+    st.json(report.get("end_to_end_pipeline", {}))
+    confusion = report.get("confusion_matrix", {})
+    if confusion.get("labels") and confusion.get("values"):
+        st.subheader("Raw PPE-model confusion matrix at IoU 0.50")
+        st.dataframe(pd.DataFrame(confusion["values"], index=confusion["labels"], columns=confusion["labels"]), use_container_width=True)
+    st.download_button("Download evaluation JSON", EVALUATION_PATH.read_bytes(), EVALUATION_PATH.name, "application/json")
+
+
+def how_it_works_page(processor: FrameProcessor) -> None:
+    st.header("How It Works")
+    st.markdown("""
+The application runs two YOLO models on the same frame: the trained PPE model
+detects helmet, vest, without_helmet, and without_vest; the YOLOv8 person model
+provides person boxes for association. `FrameProcessor` preprocesses the frame,
+calls `PPEDetector`, then evaluates person-level compliance through
+`ViolationDetector`.
+
+PPE detections are filtered by confidence, class-specific size rules, and
+helmet-specific checks. PPE is associated with a person by center containment
+or IoU. A PPE-only candidate without a person is shown as unverified and is
+not counted as a confirmed violation. Video helmet detections may also require
+temporal confirmation.
+""")
+    model = processor.config["model"]
+    st.json({"weights": model.get("weights_path"), "person_weights": model.get("person_model_path"),
+             "confidence_threshold": model.get("confidence_threshold"), "person_confidence_threshold": model.get("person_confidence_threshold"),
+             "iou_threshold": model.get("iou_threshold"), "class_confidence_thresholds": model.get("class_confidence_thresholds"),
+             "person_max_box_area_ratio": model.get("person_max_box_area_ratio"), "class_max_box_area_ratios": model.get("class_max_box_area_ratios", {}),
+             "association": processor.config.get("violation", {})})
 
 
 def main() -> None:
-    """Main dashboard application."""
-    st.markdown(
-        '<div class="main-header">PPE Compliance Detection System</div>',
-        unsafe_allow_html=True,
-    )
-
+    st.markdown('<div class="hero"><h1>PPE Compliance Detection</h1><p>Local analysis using the existing inference pipeline</p></div>', unsafe_allow_html=True)
     try:
-        processor, config = load_processor(get_config_version())
+        processor = load_processor(CONFIG_PATH.stat().st_mtime_ns)
     except Exception as exc:
-        st.error(f"Failed to load the system: {exc}")
+        st.error(f"Could not load the local detector: {exc}")
         st.stop()
-
     with st.sidebar:
-        st.title("Control Panel")
-
-        mode = st.selectbox(
-            "Select Mode",
-            ["Image Upload", "Video Upload", "Webcam Guide", "Statistics"],
-        )
-
-        st.markdown("---")
-        st.subheader("Runtime Settings")
-
-        save_violations = st.checkbox(
-            "Save violation images",
-            value=config["storage"].get("save_violations", True),
-        )
-        show_confidence = st.checkbox("Show confidence values", value=True)
-
-        confidence_threshold = st.slider(
-            "Confidence Threshold",
-            min_value=0.10,
-            max_value=1.00,
-            value=float(config["model"]["confidence_threshold"]),
-            step=0.05,
-        )
-
-        iou_threshold = st.slider(
-            "IoU Threshold",
-            min_value=0.10,
-            max_value=0.90,
-            value=float(config["model"]["iou_threshold"]),
-            step=0.05,
-        )
-
-        apply_runtime_settings(
-            processor,
-            config,
-            confidence_threshold,
-            iou_threshold,
-            save_violations,
-        )
-
-        st.markdown("---")
-        st.subheader("System Info")
-        st.markdown(
-            f"""
-            <div class="status-card">
-                <div><strong>Model:</strong> {Path(processor.detector.model_path).name}</div>
-                <div><strong>Person Model:</strong> {Path(processor.detector.person_model_path).name}</div>
-                <div><strong>Device:</strong> {processor.detector.device}</div>
-                <div><strong>Confidence:</strong> {processor.detector.conf_threshold:.2f}</div>
-                <div><strong>Classes:</strong> person, {", ".join(sorted(set(processor.detector.ppe_class_names.values())))}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    if mode == "Image Upload":
-        image_upload_mode(processor, show_confidence)
-    elif mode == "Video Upload":
-        video_upload_mode(processor)
-    elif mode == "Webcam Guide":
-        webcam_mode()
+        st.title("Navigation")
+        page = st.radio("Page", ["Overview", "Image Analysis", "Batch Testing", "Live Camera", "Evaluation", "How It Works"])
+        processor.save_violations = st.checkbox("Save violation images", value=processor.config["storage"].get("save_violations", True))
+        st.caption(f"PPE model: {Path(processor.detector.model_path).name}")
+    if page == "Overview":
+        overview_page(processor)
+    elif page == "Image Analysis":
+        image_page(processor)
+    elif page == "Batch Testing":
+        batch_page(processor)
+    elif page == "Live Camera":
+        from app.pages.live_camera import render as render_camera
+        render_camera(processor)
+    elif page == "Evaluation":
+        evaluation_page()
     else:
-        statistics_mode(processor)
-
-
-def image_upload_mode(processor: FrameProcessor, show_confidence: bool) -> None:
-    """Image upload and processing mode."""
-    st.header("Image Analysis")
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Choose an image",
-            type=["jpg", "jpeg", "png", "bmp"],
-            help="Upload an image to detect PPE compliance.",
-            key="image_uploader",
-        )
-
-        if uploaded_file is not None:
-            current_upload_token = f"{uploaded_file.name}:{uploaded_file.size}"
-            previous_upload_token = st.session_state.get("image_upload_token")
-            if previous_upload_token != current_upload_token:
-                st.session_state.pop("image_result", None)
-                st.session_state["image_upload_token"] = current_upload_token
-
-            image = Image.open(uploaded_file).convert("RGB")
-            image_np = np.array(image)
-            image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-            render_image(image, caption="Original Image")
-
-            if st.button("Run Detection", type="primary", key="detect_image"):
-                with st.spinner("Processing image..."):
-                    result = processor.process_frame(
-                        image_bgr,
-                        save_violation=processor.save_violations,
-                        source_name=uploaded_file.name,
-                    )
-                    append_image_log(processor, result, uploaded_file.name)
-                    st.session_state["image_result"] = result
-
-    with col2:
-        st.subheader("Detection Results")
-        if st.button("Clear Previous Result", key="clear_image_result"):
-            st.session_state.pop("image_result", None)
-            st.session_state.pop("image_upload_token", None)
-            st.rerun()
-
-        result = st.session_state.get("image_result")
-        if not result:
-            st.info("Upload an image and run detection to see results here.")
-            return
-
-        annotated_rgb = cv2.cvtColor(result["annotated_frame"], cv2.COLOR_BGR2RGB)
-        render_image(annotated_rgb, caption="Annotated Output")
-        render_detection_details(result, show_confidence)
-
-
-def video_upload_mode(processor: FrameProcessor) -> None:
-    """Video upload and processing mode."""
-    st.header("Video Analysis")
-
-    uploaded_file = st.file_uploader(
-        "Upload Video",
-        type=["mp4", "avi", "mov", "mkv"],
-        help="Upload a video to process for PPE compliance.",
-        key="video_uploader",
-    )
-
-    if uploaded_file is None:
-        st.info("Upload a video to start processing.")
-        return
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        video_path = tmp_file.name
-
-    st.video(video_path)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        skip_frames = st.number_input(
-            "Process every N frames",
-            min_value=0,
-            max_value=30,
-            value=0,
-            help="0 means every frame. 5 means every 6th frame is processed.",
-        )
-    with col2:
-        save_output = st.checkbox("Save annotated video", value=False)
-
-    if st.button("Process Video", type="primary", key="process_video"):
-        output_path = None
-        if save_output:
-            output_path = str(
-                PROJECT_ROOT / f"output_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-            )
-
-        try:
-            with st.spinner("Processing video. This can take a while."):
-                stats = processor.process_video(
-                    video_path,
-                    output_path=output_path,
-                    display=False,
-                    skip_frames=int(skip_frames),
-                )
-        except Exception as exc:
-            st.error(f"Video processing failed: {exc}")
-        else:
-            st.success("Video processing completed.")
-
-            frames_processed = stats["frames_processed"]
-            total_violations = stats["total_violations"]
-            frames_with_violations = stats["frames_with_violations"]
-            avg_violations = total_violations / frames_processed if frames_processed else 0.0
-
-            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-            with metric_col1:
-                st.metric("Frames Processed", frames_processed)
-            with metric_col2:
-                st.metric("Total Violations", total_violations)
-            with metric_col3:
-                st.metric("Frames With Violations", frames_with_violations)
-            with metric_col4:
-                st.metric("Avg Violations / Frame", f"{avg_violations:.2f}")
-
-            if output_path and os.path.exists(output_path):
-                st.success(f"Annotated video saved to: {output_path}")
-                with open(output_path, "rb") as file:
-                    st.download_button(
-                        "Download Annotated Video",
-                        data=file,
-                        file_name=Path(output_path).name,
-                        mime="video/mp4",
-                    )
-        finally:
-            if os.path.exists(video_path):
-                os.unlink(video_path)
-
-
-def webcam_mode() -> None:
-    """Show CLI instructions for webcam mode."""
-    st.header("Webcam Mode")
-    st.info(
-        """
-Webcam detection runs best through the CLI because Streamlit is not ideal for
-real-time local camera rendering in this project.
-        """
-    )
-
-    st.code(
-        "python -m src.inference --source webcam --camera 0",
-        language="bash",
-    )
-    st.write("Press `q` in the OpenCV window to stop the webcam stream.")
-
-
-def statistics_mode(processor: FrameProcessor) -> None:
-    """Display saved logs and recent violation images."""
-    st.header("System Statistics")
-
-    log_file = processor.config["storage"].get("log_file", "")
-    logs = load_logs(log_file)
-    summary = summarize_logs(logs)
-    images = list_violation_images(processor.violations_dir)
-
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-    with metric_col1:
-        st.metric("Logged Runs", summary["total_records"])
-    with metric_col2:
-        st.metric("Total Violations", summary["total_violations"])
-    with metric_col3:
-        st.metric("Runs With Violations", summary["records_with_violations"])
-    with metric_col4:
-        st.metric("Saved Images", len(images))
-
-    if not logs and not images:
-        st.info("No saved logs or violation images found yet.")
-        return
-
-    if logs:
-        st.markdown("---")
-        st.subheader("Recent Logs")
-
-        rows = []
-        for log in reversed(logs[-50:]):
-            detection_summary = log.get("detection_summary", {})
-            rows.append(
-                {
-                    "Timestamp": log.get("timestamp", ""),
-                    "Source": log.get("source", ""),
-                    "Type": log.get("source_type", ""),
-                    "Violations": log.get("violation_count", 0),
-                    "Compliance %": f'{float(log.get("compliance_rate", 0.0)):.1f}%',
-                    "Person": detection_summary.get("person", 0),
-                    "Helmet": detection_summary.get("helmet", 0),
-                    "Vest": detection_summary.get("vest", 0),
-                    "Without Helmet": detection_summary.get("without_helmet", 0),
-                    "Without Vest": detection_summary.get("without_vest", 0),
-                    "Image": log.get("image_path", ""),
-                }
-            )
-
-        dataframe = pd.DataFrame(rows)
-        st.dataframe(dataframe, use_container_width=True)
-        st.download_button(
-            "Download Logs JSON",
-            data=json.dumps(logs, indent=2),
-            file_name=f"violation_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json",
-        )
-
-    if images:
-        st.markdown("---")
-        st.subheader("Recent Violation Images")
-
-        columns = st.columns(3)
-        for index, image_path in enumerate(images[:12]):
-            with columns[index % 3]:
-                image = Image.open(image_path)
-                render_image(image, caption=image_path.name)
+        how_it_works_page(processor)
 
 
 if __name__ == "__main__":

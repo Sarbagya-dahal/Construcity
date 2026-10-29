@@ -1,7 +1,7 @@
 """Dual-model PPE detector using YOLOv8 person + custom PPE models."""
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -32,6 +32,13 @@ class PPEDetector:
         self.max_box_area_ratio = float(model_config.get("max_box_area_ratio", 0.08))
         self.min_box_width_ratio = float(model_config.get("min_box_width_ratio", 0.03))
         self.min_box_height_ratio = float(model_config.get("min_box_height_ratio", 0.03))
+        self.person_max_box_area_ratio = float(
+            model_config.get("person_max_box_area_ratio", 0.90)
+        )
+        self.class_max_box_area_ratios = {
+            self._normalize_class_name(name): float(value)
+            for name, value in model_config.get("class_max_box_area_ratios", {}).items()
+        }
         self.helmet_upper_region_ratio = float(model_config.get("helmet_upper_region_ratio", 0.65))
         self.helmet_head_region_ratio = float(model_config.get("helmet_head_region_ratio", 0.25))
         self.helmet_min_aspect_ratio = float(model_config.get("helmet_min_aspect_ratio", 0.5))
@@ -40,6 +47,7 @@ class PPEDetector:
         self.helmet_temporal_frames = int(model_config.get("helmet_temporal_frames", 3))
         self.temporal_iou_threshold = float(model_config.get("temporal_iou_threshold", 0.3))
         self._helmet_tracks: List[dict] = []
+        self.last_diagnostics: Dict = {}
 
         print(f"Loading PPE YOLO model from: {model_path}")
         self.ppe_model = YOLO(model_path)
@@ -104,12 +112,13 @@ class PPEDetector:
             "without_vest": [],
         }
 
-    def _passes_size_filters(
+    def _size_filter_reasons(
         self,
         bbox: List[float],
         image_shape: tuple[int, int, int],
-    ) -> bool:
-        """Reject very small boxes that are likely false positives."""
+        max_area_ratio: Optional[float] = None,
+    ) -> List[str]:
+        """Return explicit reasons a box fails the configured size limits."""
         image_height, image_width = image_shape[:2]
         x1, y1, x2, y2 = bbox
         width = max(0.0, x2 - x1)
@@ -117,15 +126,35 @@ class PPEDetector:
         area = width * height
         image_area = float(image_width * image_height)
 
+        reasons = []
         if width < image_width * self.min_box_width_ratio:
-            return False
+            reasons.append("width_below_minimum")
         if height < image_height * self.min_box_height_ratio:
-            return False
+            reasons.append("height_below_minimum")
         if area < image_area * self.min_box_area_ratio:
-            return False
-        if area > image_area * self.max_box_area_ratio:
-            return False
-        return True
+            reasons.append("area_below_minimum")
+        maximum = self.max_box_area_ratio if max_area_ratio is None else max_area_ratio
+        if maximum is not None and area > image_area * maximum:
+            reasons.append("area_above_maximum")
+        return reasons
+
+    def _passes_size_filters(
+        self,
+        bbox: List[float],
+        image_shape: tuple[int, int, int],
+    ) -> bool:
+        """Reject boxes outside the PPE size limits."""
+        return not self._size_filter_reasons(bbox, image_shape)
+
+    def _passes_person_size_filters(
+        self,
+        bbox: List[float],
+        image_shape: tuple[int, int, int],
+    ) -> bool:
+        """Apply size limits appropriate for a full person box."""
+        return not self._size_filter_reasons(
+            bbox, image_shape, max_area_ratio=self.person_max_box_area_ratio
+        )
 
     @staticmethod
     def _bbox_iou(box1: List[float], box2: List[float]) -> float:
@@ -189,23 +218,35 @@ class PPEDetector:
         for helmet in helmets:
             bbox = helmet["bbox"]
             confidence = helmet.get("confidence", helmet.get("conf", 0.0))
+            reasons = []
 
             if confidence <= max(0.6, self.class_conf_thresholds.get("helmet", self.conf_threshold)):
-                continue
-            if not self._passes_size_filters(bbox, image.shape):
-                continue
+                reasons.append("helmet_confidence_not_strictly_above_threshold")
+            reasons.extend(
+                self._size_filter_reasons(
+                    bbox,
+                    image.shape,
+                    max_area_ratio=self.class_max_box_area_ratios.get("helmet"),
+                )
+            )
             if not self._helmet_has_valid_shape(bbox):
-                continue
+                reasons.append("invalid_helmet_aspect_ratio")
             if not self._helmet_has_valid_intensity(bbox, image):
-                continue
+                reasons.append("helmet_intensity_below_minimum")
 
             if persons:
                 if not any(self._helmet_in_person_head_region(bbox, person["bbox"]) for person in persons):
-                    continue
+                    reasons.append("outside_all_person_head_regions")
             else:
                 helmet_center_y = (bbox[1] + bbox[3]) / 2.0
                 if helmet_center_y > image_height * self.helmet_upper_region_ratio:
-                    continue
+                    reasons.append("below_upper_image_region")
+
+            if reasons:
+                self.last_diagnostics.setdefault("ppe", {}).setdefault(
+                    "helmet_post_filter_rejections", []
+                ).append({"detection": helmet, "reasons": reasons})
+                continue
 
             filtered.append(helmet)
 
@@ -257,10 +298,29 @@ class PPEDetector:
         """Apply confidence, size, and helmet-position heuristics."""
         if confidence < self.class_conf_thresholds.get(class_name, self.conf_threshold):
             return False
-        if not self._passes_size_filters(bbox, image_shape):
+        if self._class_filter_reasons(class_name, confidence, bbox, image_shape):
             return False
 
         return True
+
+    def _class_filter_reasons(
+        self,
+        class_name: str,
+        confidence: float,
+        bbox: List[float],
+        image_shape: tuple[int, int, int],
+    ) -> List[str]:
+        reasons = []
+        if confidence < self.class_conf_thresholds.get(class_name, self.conf_threshold):
+            reasons.append("confidence_below_class_threshold")
+        reasons.extend(
+            self._size_filter_reasons(
+                bbox,
+                image_shape,
+                max_area_ratio=self.class_max_box_area_ratios.get(class_name),
+            )
+        )
+        return reasons
 
     @staticmethod
     def _build_detection(
@@ -298,7 +358,18 @@ class PPEDetector:
             confidence = float(box.conf[0].cpu().numpy())
             bbox = [float(x1), float(y1), float(x2), float(y2)]
 
-            if not self._passes_size_filters(bbox, image.shape):
+            reasons = self._size_filter_reasons(
+                bbox, image.shape, max_area_ratio=self.person_max_box_area_ratio
+            )
+            self.last_diagnostics.setdefault("person", {}).setdefault("raw", []).append(
+                {
+                    "detection": self._build_detection(
+                        bbox, confidence, 0, self.person_class_name, "person_model"
+                    ),
+                    "reasons": reasons,
+                }
+            )
+            if reasons:
                 continue
 
             detections.append(
@@ -350,7 +421,11 @@ class PPEDetector:
             )
             raw_detections[class_name].append(detection)
 
-            if self._passes_class_filters(class_name, confidence, bbox, image.shape):
+            reasons = self._class_filter_reasons(class_name, confidence, bbox, image.shape)
+            self.last_diagnostics.setdefault("ppe", {}).setdefault("raw", {}).setdefault(
+                class_name, []
+            ).append({"detection": detection, "reasons": reasons})
+            if not reasons:
                 filtered_detections[class_name].append(detection)
 
         return raw_detections, filtered_detections
@@ -361,6 +436,7 @@ class PPEDetector:
 
     def detect(self, image: np.ndarray, enable_temporal: bool = False) -> Dict[str, List[dict]]:
         """Run both models and merge detections into one structured output."""
+        self.last_diagnostics = {"person": {}, "ppe": {}}
         person_detections = self._run_person_model(image)
         raw_ppe_detections, filtered_ppe_detections = self._run_ppe_model(image)
         filtered_ppe_detections["helmet"] = self._filter_helmet_detections(
@@ -383,6 +459,11 @@ class PPEDetector:
 
         print("Detections:", raw_debug)
         print("Filtered Detections:", detections)
+        self.last_diagnostics["person"]["accepted_count"] = len(person_detections)
+        self.last_diagnostics["ppe"]["accepted_counts"] = {
+            name: len(items) for name, items in filtered_ppe_detections.items()
+        }
+        print("Detection Diagnostics:", self.last_diagnostics)
         return detections
 
     def detect_batch(self, images: List[np.ndarray]) -> List[Dict[str, List[dict]]]:

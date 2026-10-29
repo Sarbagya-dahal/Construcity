@@ -1,13 +1,10 @@
-# PPE Compliance Detection System Configuration
-
-# Model Configuration
 model:
-  weights_path: "models/trained/best.pt"
-  person_model_path: "yolov8n.pt"
+  weights_path: models/trained/best.pt
+  person_model_path: yolov8n.pt
   person_confidence_threshold: 0.35
   confidence_threshold: 0.5
   iou_threshold: 0.4
-  device: "cpu"   # change to "cuda" if GPU available
+  device: cpu
   class_confidence_thresholds:
     helmet: 0.6
     vest: 0.5
@@ -17,51 +14,109 @@ model:
   max_box_area_ratio: 0.08
   min_box_width_ratio: 0.03
   min_box_height_ratio: 0.03
+  person_max_box_area_ratio: 0.9
+  class_max_box_area_ratios:
+    vest: 0.3
+    without_vest: 0.3
   helmet_upper_region_ratio: 0.65
   helmet_head_region_ratio: 0.25
   helmet_min_aspect_ratio: 0.5
-  helmet_max_aspect_ratio: 2.0
+  helmet_max_aspect_ratio: 2.3
   helmet_min_intensity: 75.0
   helmet_temporal_frames: 3
   temporal_iou_threshold: 0.3
-
-# Classes (MUST match data.yaml)
 classes:
   helmet: 0
   vest: 1
   without_helmet: 2
   without_vest: 3
-
-# Violation Logic Configuration
 violation:
   violation_classes:
-    - without_helmet
-    - without_vest
+  - without_helmet
+  - without_vest
   person_ppe_iou_threshold: 0.01
   person_center_margin: 0.05
+  helmet_head_region_ratio: 0.35
+  helmet_worn_confidence_threshold: 0.8
+  vest_torso_top_ratio: 0.25
+  vest_torso_bottom_ratio: 0.85
+  vest_min_area_fraction: 0.005
+  vest_require_center_x_inside: true
   enable_person_fallback: false
-
-# Storage Configuration
+head_classifier:
+  enabled: false
+  checkpoint_path: models/head_classifier/best.pt
+  device: cpu
+  image_size: 224
+  min_confidence: 0.8
+  face_scale_factor: 1.1
+  face_min_neighbors: 5
+  use_top_region_fallback: true
+  top_region_ratio: 0.28
+head_heuristic:
+  face_anchor_iou_threshold: 0.1
+  fallback_iou_threshold: 0.3
+incident_detection:
+  enabled: false
+  min_region_area_px: 60
+  max_region_area_ratio: 0.2
+  texture_std_min: 10.0
+  urgent_review_threshold: 0.7
+  enable_experimental_heuristic: false
+  draw_experimental_debug_boxes: false
+reporting:
+  enabled: true
+  output_dir: outputs/reports
+  auto_generate_on_violation: true
+  auto_generate_on_incident: false
+  auto_generate_on_review: true
+notifications:
+  enabled: true
+  cooldown_seconds: 60
+  manager_email: ''
+  smtp_server: ''
+  smtp_port: 587
+  smtp_use_tls: true
+  smtp_username: ''
+  smtp_password: ''
+  notify_on_violation: true
+  notify_on_incident: false
+  notify_on_review: false
 storage:
-  violations_dir: "violations"
-  log_file: "violations/violations_log.json"
+  violations_dir: violations
+  log_file: violations/violations_log.json
   save_violations: true
-  image_format: "jpg"
-
-# Dashboard Configuration
+  image_format: jpg
 dashboard:
-  title: "PPE Compliance Detection System"
-  page_icon: "🦺"
-  layout: "wide"
+  title: PPE Compliance Detection System
+  page_icon: "\xF0\u0178\xA6\xBA"
+  layout: wide
   max_video_fps: 30
-
-# Visualization
 visualization:
   bbox_thickness: 2
   text_size: 0.6
   colors:
-    person: [255, 255, 255]
-    helmet: [0, 255, 0]
-    vest: [0, 255, 255]
-    without_helmet: [0, 0, 255]
-    without_vest: [255, 0, 0]
+    person:
+    - 180
+    - 180
+    - 180
+    helmet:
+    - 0
+    - 255
+    - 0
+    vest:
+    - 0
+    - 255
+    - 255
+    without_helmet:
+    - 0
+    - 0
+    - 255
+    without_vest:
+    - 255
+    - 0
+    - 0
+    red_region_candidate:
+    - 0
+    - 0
+    - 200

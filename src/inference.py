@@ -60,7 +60,7 @@ def main():
 
     model_path = config["model"]["weights_path"]
     if not Path(model_path).exists():
-        print(f"❌ Model not found: {model_path}")
+        print(f"ERROR: Model not found: {model_path}")
         sys.exit(1)
 
     print("Initializing PPE Detection System...")
@@ -112,7 +112,10 @@ def process_images(processor, args):
         violations = result["violations"]["violation_count"]
         total_violations += violations
 
-        print(f"  └─ Violations detected: {violations}")
+        print(f"  - Violations detected: {violations}")
+        unverified = result["violations"].get("unverified_candidates", [])
+        if unverified:
+            print(f"  - Unverified PPE candidates: {len(unverified)}")
 
         if args.display:
             cv2.imshow("PPE Detection", result["annotated_frame"])

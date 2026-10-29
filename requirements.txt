@@ -7,6 +7,9 @@ Pillow==10.0.1
 
 # Dashboard
 streamlit==1.28.1
+# Streamlit 1.28 with the pinned NumPy 1.x runtime is incompatible with
+# newer pyarrow wheels that require NumPy 2.
+pyarrow<15
 
 # Utilities
 pyyaml==6.0.1
