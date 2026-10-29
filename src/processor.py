@@ -207,7 +207,10 @@ class FrameProcessor:
         capture_timestamp: Optional[datetime | str] = None,
     ) -> Dict:
         """Process an individual streaming video frame with temporal smoothing and deduplication."""
-        source_name = f"{source_id}_frame_{frame_id}"
+        # Keep one stable notification identity for the whole stream. Frame IDs
+        # remain in the result/session event, while cooldowns deduplicate a
+        # persistent incident across sampled frames.
+        source_name = source_id
         proc_ts = None
         if isinstance(timestamp, (int, float)):
             try:

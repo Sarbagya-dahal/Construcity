@@ -146,6 +146,35 @@ Overview, Image Analysis, Batch Testing, Evaluation, and How It Works pages.
 Uploads are processed locally. Run it from the project root after activating
 `.venv`.
 
+### Camera sessions
+
+Open **Live Camera**, choose the local camera index and capture/inference
+interval, then select **Start Camera**. Every sampled frame is persisted under
+`outputs/camera_sessions/<session_id>/` with separate `original_frames/` and
+`annotated_frames/` folders, timezone-aware timestamps, `events.csv`,
+`events.json`, and `session.json`. The optional continuous recording is saved
+as `recording.mp4` when enabled.
+
+Select **Stop Camera** to stop capture, finalize the recording, generate
+`reports/session_report.pdf`, and create `session_bundle.zip`. The page shows
+the absolute session path and provides downloads for both artifacts. Completed
+sessions remain available in the Session history after a browser refresh.
+
+The session report includes every captured frame, including frames with no
+violations and frames whose inference failed. Failed notification delivery or
+PDF generation does not delete the saved image evidence. The current
+notification cooldown policy is preserved.
+
+Launch on Windows PowerShell:
+
+```powershell
+Set-Location 'C:\Users\Sarbagya\Downloads\ppe_detection'
+& '.\.venv\Scripts\streamlit.exe' run 'app\dashboard.py'
+```
+
+Use a mock camera in automated tests; a physical webcam is not considered
+verified unless it is manually exercised on the target machine.
+
 ## Tests and Evaluation (Windows PowerShell)
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v

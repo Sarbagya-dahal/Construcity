@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -49,6 +50,62 @@ class CameraWorkerSessionTests(unittest.TestCase):
             worker = CameraWorker(proc, session_dir, interval_seconds=3)
             manifest = json.loads((session_dir / "session.json").read_text())
             self.assertEqual(manifest["interval_seconds"], 3.0)
+
+    def test_session_persists_original_annotated_pdf_and_zip(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir) / "evidence_session"
+            worker = CameraWorker(_make_fake_processor(), session_dir, interval_seconds=5)
+            frame = np.full((80, 100, 3), 40, dtype=np.uint8)
+            worker._run_inference(frame)
+            worker.stop()
+
+            original = list((session_dir / "original_frames").glob("*.jpg"))
+            annotated = list((session_dir / "annotated_frames").glob("*.jpg"))
+            self.assertEqual(len(original), 1)
+            self.assertEqual(len(annotated), 1)
+            self.assertEqual(original[0].name, annotated[0].name)
+            events = json.loads((session_dir / "events.json").read_text())
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["processing_status"], "success")
+            self.assertTrue((session_dir / "reports" / "session_report.pdf").is_file())
+            bundle = session_dir / "session_bundle.zip"
+            self.assertTrue(bundle.is_file())
+            with zipfile.ZipFile(bundle) as archive:
+                self.assertIsNone(archive.testzip())
+                names = set(archive.namelist())
+            self.assertIn("events.csv", names)
+            self.assertIn("events.json", names)
+            self.assertIn("reports/session_report.pdf", names)
+            self.assertIn(f"original_frames/{original[0].name}", names)
+            self.assertIn(f"annotated_frames/{annotated[0].name}", names)
+
+    def test_failed_frame_keeps_original_evidence_and_is_logged(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir) / "failure_session"
+            proc = _make_fake_processor()
+            proc.process_stream_frame.side_effect = RuntimeError("simulated inference failure")
+            worker = CameraWorker(proc, session_dir, interval_seconds=5)
+            worker._run_inference(np.zeros((40, 60, 3), dtype=np.uint8))
+            worker.stop()
+            events = json.loads((session_dir / "events.json").read_text())
+            self.assertEqual(events[0]["processing_status"], "failed")
+            self.assertIn("simulated inference failure", events[0]["error"])
+            self.assertEqual(len(list((session_dir / "original_frames").glob("*.jpg"))), 1)
+
+    def test_recording_writer_is_released_on_stop(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_dir = Path(tmpdir) / "video_session"
+            worker = CameraWorker(_make_fake_processor(), session_dir, interval_seconds=5, record_video=True)
+            fake_writer = MagicMock()
+            fake_writer.isOpened.return_value = True
+            with patch("src.camera_session.cv2.VideoWriter", return_value=fake_writer):
+                worker.session.record_video_frame(np.zeros((40, 60, 3), dtype=np.uint8))
+                worker.stop()
+            fake_writer.write.assert_called_once()
+            fake_writer.release.assert_called_once()
 
 
 class CameraWorkerLifecycleTests(unittest.TestCase):
