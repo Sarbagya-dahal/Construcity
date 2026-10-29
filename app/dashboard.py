@@ -25,7 +25,7 @@ EVALUATION_PATH = PROJECT_ROOT / "outputs" / "evaluation_report.json"
 CLASS_ORDER = ("person", "helmet", "vest", "without_helmet", "without_vest")
 
 CONFIG = load_config(str(CONFIG_PATH))
-st.set_page_config(page_title=CONFIG.get("dashboard", {}).get("title", "PPE Detection"),
+st.set_page_config(page_title="Construcity",
                    page_icon=CONFIG.get("dashboard", {}).get("page_icon", "PPE"),
                    layout=CONFIG.get("dashboard", {}).get("layout", "wide"))
 FRONTEND_CSS = Path(__file__).with_name("frontend.css")
@@ -273,7 +273,7 @@ def batch_page(processor: FrameProcessor) -> None:
 
 
 def overview_page(processor: FrameProcessor) -> None:
-    ui_title("Operations overview", "PPE Safety Monitor")
+    ui_title("Operations overview", "Construcity")
     history = read_history(processor)
     if not history:
         st.markdown('<div class="notice">No saved analysis history. Use Image Analysis or Batch Testing to create the first record.</div>', unsafe_allow_html=True)
@@ -325,7 +325,7 @@ def evaluation_page() -> None:
 def how_it_works_page(processor: FrameProcessor) -> None:
     ui_title("Detection method", "How it works")
     st.markdown("""
-The application runs two YOLO models on the same frame: the trained PPE model
+Construcity runs two YOLO models on the same frame: the trained PPE model
 detects helmet, vest, without_helmet, and without_vest; the YOLOv8 person model
 provides person boxes for association. `FrameProcessor` preprocesses the frame,
 calls `PPEDetector`, then evaluates person-level compliance through
@@ -346,17 +346,17 @@ temporal confirmation.
 
 
 def main() -> None:
-    st.markdown('<div class="hero"><h1>PPE Safety Monitor</h1><p>Local evidence review for personal protective equipment compliance.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><h1>Construcity</h1><p>Construction Safety Intelligence — local evidence review for PPE compliance.</p></div>', unsafe_allow_html=True)
     try:
         processor = load_processor(CONFIG_PATH.stat().st_mtime_ns)
     except Exception as exc:
         st.error(f"Could not load the local detector: {exc}")
         st.stop()
     with st.sidebar:
-        st.markdown('<p class="kicker" style="color:#F2C744">Operations</p>', unsafe_allow_html=True)
+        st.markdown('<div class="rail-brand">CONSTRUCITY</div><div class="rail-subtitle">Construction Safety Intelligence</div><p class="kicker rail-kicker">Operations</p>', unsafe_allow_html=True)
         page = st.radio("Workspace", ["Overview", "Image Analysis", "Batch Testing", "Live Camera", "Evaluation", "How It Works"])
         processor.save_violations = st.checkbox("Save violation images", value=processor.config["storage"].get("save_violations", True))
-        st.caption(f"PPE model: {Path(processor.detector.model_path).name}")
+        st.caption(f"Detection model: {Path(processor.detector.model_path).name}")
     if page == "Overview":
         overview_page(processor)
     elif page == "Image Analysis":
