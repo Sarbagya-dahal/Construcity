@@ -30,6 +30,11 @@ html, body {
 [data-testid="stAppViewContainer"] { background: var(--canvas); color: var(--ink); }
 [data-testid="stHeader"] { background: var(--canvas); }
 [data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--sidebar); color: var(--sidebar-text); }
+[data-testid="stSidebarNav"], [data-testid="stSidebarNav"] a,
+[data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { color: var(--sidebar-text); }
+[data-testid="stSidebarNav"] a { background: transparent; }
+[data-testid="stSidebarNav"] a:hover, [data-testid="stSidebarNav"] a[aria-current="page"] { color: var(--sidebar-text); background: #2B3036; }
+[data-testid="stSidebarNav"] svg { fill: var(--sidebar-secondary); }
 [data-testid="stSidebar"] .rail-brand { color: var(--sidebar-text); font-size: 1.45rem; font-weight: 700; letter-spacing: 0.08em; margin: 0 0 0.35rem; }
 [data-testid="stSidebar"] .rail-subtitle { color: var(--sidebar-secondary); font-size: 0.78rem; line-height: 1.35; margin: 0 0 2.25rem; }
 [data-testid="stSidebar"] .rail-kicker { color: var(--yellow); }
