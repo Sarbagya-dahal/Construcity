@@ -28,13 +28,18 @@ CONFIG = load_config(str(CONFIG_PATH))
 st.set_page_config(page_title=CONFIG.get("dashboard", {}).get("title", "PPE Detection"),
                    page_icon=CONFIG.get("dashboard", {}).get("page_icon", "PPE"),
                    layout=CONFIG.get("dashboard", {}).get("layout", "wide"))
-st.markdown("""
-<style>
-body { background: #f5f1e8; }
-.hero { padding: 1.1rem 1.3rem; border-radius: 12px; color: white;
-        background: linear-gradient(135deg, #1f2937, #9a3412); margin-bottom: 1rem; }
-</style>
-""", unsafe_allow_html=True)
+FRONTEND_CSS = Path(__file__).with_name("frontend.css")
+if FRONTEND_CSS.exists():
+    st.markdown(f"<style>{FRONTEND_CSS.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+
+
+def ui_title(title: str, kicker: str) -> None:
+    """Render presentation-only page hierarchy."""
+    st.markdown(f'<p class="kicker">{kicker}</p><h2 class="page-title">{title}</h2>', unsafe_allow_html=True)
+
+
+def ui_section(title: str) -> None:
+    st.markdown(f'<h3 class="section-title">{title}</h3>', unsafe_allow_html=True)
 
 
 def absolute_config(config: dict) -> dict:
@@ -108,23 +113,21 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
     alert = result.get("alert", {})
     summary = create_detection_summary(detections)
 
-    # Scan Timestamp Header
     scan_ts = result.get("scan_timestamp") or result.get("timestamp")
-    st.info(f"🕒 **Scanned at:** {format_scan_timestamp(scan_ts)}")
+    st.markdown(f'<div class="meta-line">SCAN TIMESTAMP &nbsp; {format_scan_timestamp(scan_ts)}</div>', unsafe_allow_html=True)
 
-    # Status Notification Banner
     if incidents.get("validated", False) and incidents.get("status") == "POTENTIAL_INJURY_SUSPECTED":
-        st.error("POTENTIAL INCIDENT / INJURY DETECTED (URGENT HUMAN REVIEW REQUIRED)")
+        st.markdown('<div class="status-band alert">URGENT INCIDENT REVIEW REQUIRED<small>Potential injury/incident finding. Human confirmation is required.</small></div>', unsafe_allow_html=True)
     elif violations.get("violation_count"):
-        st.error(f"{violations['violation_count']} confirmed PPE violation(s) detected")
+        st.markdown(f'<div class="status-band alert">{violations["violation_count"]} CONFIRMED PPE VIOLATION(S)<small>Review the evidence and incident report before taking action.</small></div>', unsafe_allow_html=True)
     elif violations.get("status") == "needs_review":
-        st.warning("Helmet / head evidence needs review; uncertain candidates are not treated as compliance.")
+        st.markdown('<div class="status-band review">REVIEW UNCERTAIN DETECTION<small>Uncertain helmet evidence is not treated as compliance.</small></div>', unsafe_allow_html=True)
     elif violations.get("status") == "evaluated_with_uncertainty":
-        st.warning("Some PPE compliance statuses are uncertain because no positive or explicit negative detection was associated.")
+        st.markdown('<div class="status-band review">PARTIAL EVALUATION<small>Some PPE statuses are uncertain because no positive or explicit negative detection was associated.</small></div>', unsafe_allow_html=True)
     elif violations.get("status") == "person_missing":
-        st.warning("No person was associated. PPE-only detections remain unverified and are not counted as confirmed violations.")
+        st.markdown('<div class="status-band review">NO WORKER ASSOCIATED<small>PPE-only detections remain unverified and are not counted as confirmed violations.</small></div>', unsafe_allow_html=True)
     else:
-        st.success("No confirmed PPE violations. Personnel compliant.")
+        st.markdown('<div class="status-band">NO CONFIRMED PPE VIOLATIONS<small>All available evidence was evaluated without a confirmed violation.</small></div>', unsafe_allow_html=True)
 
     # Alert & Dispatch Status Card
     if alert.get("sent"):
@@ -136,13 +139,15 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
     elif alert.get("status") and alert.get("status") not in ("Not triggered", "No actionable finding triggered"):
         st.warning(f"Notification Status: {alert.get('status')}")
 
-    # Metrics
-    cols = st.columns(4)
-    cols[0].metric("Persons", summary["person"])
     ppe_count = sum(summary.get(name, 0) for name in ("helmet", "vest", "without_helmet", "without_vest"))
-    cols[1].metric("Filtered PPE detections", ppe_count)
-    cols[2].metric("Confirmed Violations", violations["violation_count"])
-    cols[3].metric("Compliance", f'{violations["compliance_rate"]:.1f}%')
+    st.markdown(
+        '<div class="metric-strip">'
+        f'<div><div class="metric-label">Workers</div><div class="metric-value">{summary["person"]}</div></div>'
+        f'<div><div class="metric-label">PPE objects</div><div class="metric-value">{ppe_count}</div></div>'
+        f'<div><div class="metric-label">Confirmed violations</div><div class="metric-value">{violations["violation_count"]}</div></div>'
+        f'<div><div class="metric-label">Compliance</div><div class="metric-value">{violations["compliance_rate"]:.1f}%</div></div>'
+        '</div>', unsafe_allow_html=True,
+    )
 
     # Blood / Incident Status Section (Truthful disclosure, Phase 1 & 2)
     if not incidents.get("available", False):
@@ -151,7 +156,7 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
                 "red tools, and clothing. *Notice: This scan has not been evaluated for blood or injuries; "
                 "absence of alerts does not confirm that no blood or injury is present.*")
     elif incidents.get("validated", False) and incidents.get("candidates"):
-        st.subheader("Validated Incident / Injury Candidates")
+        ui_section("Validated incident / injury candidates")
         st.dataframe(pd.DataFrame(incidents["candidates"]), use_container_width=True, hide_index=True)
         st.caption(incidents.get("limitations", ""))
     elif incidents.get("candidates"):
@@ -182,7 +187,7 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
         st.info("No filtered detections for this image.")
 
     if violations.get("unverified_candidates"):
-        st.subheader("Unverified PPE candidates")
+        ui_section("Unverified PPE candidates")
         st.dataframe(pd.DataFrame(violations["unverified_candidates"]), use_container_width=True, hide_index=True)
 
     review_rows = [
@@ -195,11 +200,11 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
         if item.get("needs_review")
     ]
     if review_rows:
-        st.subheader("Needs review")
+        ui_section("Review queue")
         st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
 
     if violations.get("violations"):
-        st.subheader("Confirmed violation details")
+        ui_section("Confirmed violation details")
         st.dataframe(pd.DataFrame(violations["violations"]), use_container_width=True, hide_index=True)
 
     # Collapsible Diagnostics Section (Phase 1 Requirement)
@@ -211,44 +216,44 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
 
 
 def image_page(processor: FrameProcessor) -> None:
-    st.header("Image Analysis")
-    uploaded = st.file_uploader("Upload a JPG or PNG", type=["jpg", "jpeg", "png"], key="single_image")
+    ui_title("Image analysis", "Evidence workspace")
+    uploaded = st.file_uploader("Select a JPG or PNG", type=["jpg", "jpeg", "png"], key="single_image")
     if uploaded is None:
-        st.info("Choose an image to begin analysis. Files are processed locally.")
+        st.markdown('<div class="notice">Select an image to begin. Files are processed locally.</div>', unsafe_allow_html=True)
         return
     original = Image.open(uploaded).convert("RGB")
-    if st.button("Run inference", type="primary"):
+    if st.button("Analyze Image", type="primary"):
         with st.spinner("Running the existing inference pipeline..."):
             result = process_uploaded_image(processor, uploaded.getvalue(), uploaded.name)
         st.session_state["image_result"] = result
     col1, col2 = st.columns(2)
     with col1:
-        st.image(original, caption="Original image", use_column_width=True)
+        st.image(original, caption="Original evidence", use_column_width=True)
     with col2:
         result = st.session_state.get("image_result")
         if not result:
-            st.info("Run inference to see the annotated result.")
+            st.markdown('<div class="notice">Analyze the image to view the annotated evidence.</div>', unsafe_allow_html=True)
             return
         annotated = cv2.cvtColor(result["annotated_frame"], cv2.COLOR_BGR2RGB)
-        st.image(annotated, caption="Annotated result", use_column_width=True)
+        st.image(annotated, caption="Annotated evidence", use_column_width=True)
         encoded = cv2.imencode(".jpg", result["annotated_frame"])[1].tobytes()
         btn_cols = st.columns(2)
-        btn_cols[0].download_button("Download annotated image", encoded, "ppe_result.jpg", "image/jpeg")
+        btn_cols[0].download_button("Download Annotated Image", encoded, "ppe_result.jpg", "image/jpeg")
         report_path = result.get("report_path")
         if report_path and Path(report_path).is_file():
             pdf_bytes = Path(report_path).read_bytes()
-            btn_cols[1].download_button("Download PDF Report", pdf_bytes, Path(report_path).name, "application/pdf")
+            btn_cols[1].download_button("Download Incident Report", pdf_bytes, Path(report_path).name, "application/pdf")
     if st.session_state.get("image_result"):
         render_result(st.session_state["image_result"])
 
 
 def batch_page(processor: FrameProcessor) -> None:
-    st.header("Batch Testing")
-    uploads = st.file_uploader("Upload several JPG/PNG images", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="batch_images")
+    ui_title("Batch testing", "Multi-image review")
+    uploads = st.file_uploader("Select JPG/PNG images", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="batch_images")
     if not uploads:
-        st.info("Select multiple images to build a local results table.")
+        st.markdown('<div class="notice">Select multiple images to build a local results table.</div>', unsafe_allow_html=True)
         return
-    if st.button("Process batch", type="primary"):
+    if st.button("Analyze Selected Images", type="primary"):
         rows = []
         for uploaded in uploads:
             image = cv2.imdecode(np.frombuffer(uploaded.getvalue(), np.uint8), cv2.IMREAD_COLOR)
@@ -264,30 +269,34 @@ def batch_page(processor: FrameProcessor) -> None:
     if rows:
         dataframe = pd.DataFrame(rows)
         st.dataframe(dataframe, use_container_width=True, hide_index=True)
-        st.download_button("Download batch CSV", dataframe.to_csv(index=False), "ppe_batch_results.csv", "text/csv")
+        st.download_button("Download Batch Results CSV", dataframe.to_csv(index=False), "ppe_batch_results.csv", "text/csv")
 
 
 def overview_page(processor: FrameProcessor) -> None:
-    st.header("Overview")
+    ui_title("Operations overview", "PPE Safety Monitor")
     history = read_history(processor)
     if not history:
-        st.info("No saved analysis history yet. Run Image Analysis or Batch Testing first.")
+        st.markdown('<div class="notice">No saved analysis history. Use Image Analysis or Batch Testing to create the first record.</div>', unsafe_allow_html=True)
         return
     total = sum(int(item.get("violation_count", 0)) for item in history)
-    cards = st.columns(4)
-    cards[0].metric("Processed runs", len(history))
-    cards[1].metric("Confirmed violations", total)
-    cards[2].metric("Runs with violations", sum(item.get("violation_count", 0) > 0 for item in history))
-    cards[3].metric("Average violations", f"{total / len(history):.2f}")
+    runs_with_violations = sum(item.get("violation_count", 0) > 0 for item in history)
+    st.markdown(
+        '<div class="metric-strip">'
+        f'<div><div class="metric-label">Processed runs</div><div class="metric-value">{len(history)}</div></div>'
+        f'<div><div class="metric-label">Confirmed violations</div><div class="metric-value">{total}</div></div>'
+        f'<div><div class="metric-label">Runs with violations</div><div class="metric-value">{runs_with_violations}</div></div>'
+        f'<div><div class="metric-label">Average violations</div><div class="metric-value">{total / len(history):.2f}</div></div>'
+        '</div>', unsafe_allow_html=True,
+    )
     table = pd.DataFrame(history)
-    st.subheader("Saved analysis history")
+    ui_section("Saved analysis history")
     st.dataframe(table, use_container_width=True, hide_index=True)
 
 
 def evaluation_page() -> None:
-    st.header("Evaluation")
+    ui_title("Evaluation", "Detection performance")
     if not EVALUATION_PATH.exists():
-        st.info("No evaluation report exists yet. Run the dataset evaluation command below.")
+        st.markdown('<div class="notice">No evaluation report exists yet. Run the dataset evaluation command below.</div>', unsafe_allow_html=True)
         st.code("python scripts/evaluate_dataset.py", language="powershell")
         return
     report = json.loads(EVALUATION_PATH.read_text(encoding="utf-8"))
@@ -296,7 +305,7 @@ def evaluation_page() -> None:
         group = report.get("metrics", {}).get(key)
         if not group:
             continue
-        st.subheader(title)
+        ui_section(title)
         rows = []
         for class_name, metrics in group.get("per_class", {}).items():
             rows.append({"class": class_name, "ground_truth": metrics.get("ground_truth", 0), "predictions": metrics.get("predictions", 0),
@@ -304,17 +313,17 @@ def evaluation_page() -> None:
                          "AP50": metrics.get("ap50", 0.0), "mAP50-95": metrics.get("map50_95", 0.0)})
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         st.metric("mAP50-95", f'{group.get("map50_95", 0.0):.3f}')
-    st.subheader("End-to-end pipeline summary")
+    ui_section("End-to-end pipeline summary")
     st.json(report.get("end_to_end_pipeline", {}))
     confusion = report.get("confusion_matrix", {})
     if confusion.get("labels") and confusion.get("values"):
-        st.subheader("Raw PPE-model confusion matrix at IoU 0.50")
+        ui_section("Raw PPE-model confusion matrix at IoU 0.50")
         st.dataframe(pd.DataFrame(confusion["values"], index=confusion["labels"], columns=confusion["labels"]), use_container_width=True)
-    st.download_button("Download evaluation JSON", EVALUATION_PATH.read_bytes(), EVALUATION_PATH.name, "application/json")
+    st.download_button("Download Evaluation Report", EVALUATION_PATH.read_bytes(), EVALUATION_PATH.name, "application/json")
 
 
 def how_it_works_page(processor: FrameProcessor) -> None:
-    st.header("How It Works")
+    ui_title("Detection method", "How it works")
     st.markdown("""
 The application runs two YOLO models on the same frame: the trained PPE model
 detects helmet, vest, without_helmet, and without_vest; the YOLOv8 person model
@@ -337,15 +346,15 @@ temporal confirmation.
 
 
 def main() -> None:
-    st.markdown('<div class="hero"><h1>PPE Compliance Detection</h1><p>Local analysis using the existing inference pipeline</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><h1>PPE Safety Monitor</h1><p>Local evidence review for personal protective equipment compliance.</p></div>', unsafe_allow_html=True)
     try:
         processor = load_processor(CONFIG_PATH.stat().st_mtime_ns)
     except Exception as exc:
         st.error(f"Could not load the local detector: {exc}")
         st.stop()
     with st.sidebar:
-        st.title("Navigation")
-        page = st.radio("Page", ["Overview", "Image Analysis", "Batch Testing", "Live Camera", "Evaluation", "How It Works"])
+        st.markdown('<p class="kicker" style="color:#F2C744">Operations</p>', unsafe_allow_html=True)
+        page = st.radio("Workspace", ["Overview", "Image Analysis", "Batch Testing", "Live Camera", "Evaluation", "How It Works"])
         processor.save_violations = st.checkbox("Save violation images", value=processor.config["storage"].get("save_violations", True))
         st.caption(f"PPE model: {Path(processor.detector.model_path).name}")
     if page == "Overview":
