@@ -180,7 +180,7 @@ def render(processor) -> None:
             failure_placeholder.metric("Failed frames", sum(e.get("processing_status") == "failed" for e in worker.get_event_log()))
         events = worker.get_event_log()
         if events:
-            log_placeholder.dataframe([e for e in reversed(events[-20:])], use_container_width=True, hide_index=True)
+            log_placeholder.table([e for e in reversed(events[-20:])])
         if not worker.is_running():
             st.warning("Camera stopped unexpectedly. The session is being finalized.")
             _stop_camera()

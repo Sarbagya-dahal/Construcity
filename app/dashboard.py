@@ -157,11 +157,11 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
                 "absence of alerts does not confirm that no blood or injury is present.*")
     elif incidents.get("validated", False) and incidents.get("candidates"):
         ui_section("Validated incident / injury candidates")
-        st.dataframe(pd.DataFrame(incidents["candidates"]), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(incidents["candidates"]))
         st.caption(incidents.get("limitations", ""))
     elif incidents.get("candidates"):
         with st.expander("Experimental Red-Region Debug Diagnostics (NOT Blood Probability)", expanded=False):
-            st.dataframe(pd.DataFrame(incidents["candidates"]), use_container_width=True, hide_index=True)
+            st.table(pd.DataFrame(incidents["candidates"]))
             st.caption(incidents.get("limitations", ""))
 
     # PPE Detections Table
@@ -182,13 +182,13 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
         table = pd.DataFrame(rows)
         if show_confidence:
             table["confidence"] = table["confidence"].map(lambda value: f"{value:.1%}")
-        st.dataframe(table, use_container_width=True, hide_index=True)
+        st.table(table)
     else:
         st.info("No filtered detections for this image.")
 
     if violations.get("unverified_candidates"):
         ui_section("Unverified PPE candidates")
-        st.dataframe(pd.DataFrame(violations["unverified_candidates"]), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(violations["unverified_candidates"]))
 
     review_rows = [
         {
@@ -201,11 +201,11 @@ def render_result(result: dict, show_confidence: bool = True) -> None:
     ]
     if review_rows:
         ui_section("Review queue")
-        st.dataframe(pd.DataFrame(review_rows), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(review_rows))
 
     if violations.get("violations"):
         ui_section("Confirmed violation details")
-        st.dataframe(pd.DataFrame(violations["violations"]), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(violations["violations"]))
 
     # Collapsible Diagnostics Section (Phase 1 Requirement)
     with st.expander("Diagnostics & Raw Model Predictions", expanded=False):
@@ -268,7 +268,7 @@ def batch_page(processor: FrameProcessor) -> None:
     rows = st.session_state.get("batch_rows")
     if rows:
         dataframe = pd.DataFrame(rows)
-        st.dataframe(dataframe, use_container_width=True, hide_index=True)
+        st.table(dataframe)
         st.download_button("Download Batch Results CSV", dataframe.to_csv(index=False), "ppe_batch_results.csv", "text/csv")
 
 
@@ -290,7 +290,7 @@ def overview_page(processor: FrameProcessor) -> None:
     )
     table = pd.DataFrame(history)
     ui_section("Saved analysis history")
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.table(table)
 
 
 def evaluation_page() -> None:
@@ -311,14 +311,14 @@ def evaluation_page() -> None:
             rows.append({"class": class_name, "ground_truth": metrics.get("ground_truth", 0), "predictions": metrics.get("predictions", 0),
                          "precision": metrics.get("precision", 0.0), "recall": metrics.get("recall", 0.0), "f1": metrics.get("f1", 0.0),
                          "AP50": metrics.get("ap50", 0.0), "mAP50-95": metrics.get("map50_95", 0.0)})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(rows))
         st.metric("mAP50-95", f'{group.get("map50_95", 0.0):.3f}')
     ui_section("End-to-end pipeline summary")
     st.json(report.get("end_to_end_pipeline", {}))
     confusion = report.get("confusion_matrix", {})
     if confusion.get("labels") and confusion.get("values"):
         ui_section("Raw PPE-model confusion matrix at IoU 0.50")
-        st.dataframe(pd.DataFrame(confusion["values"], index=confusion["labels"], columns=confusion["labels"]), use_container_width=True)
+        st.table(pd.DataFrame(confusion["values"], index=confusion["labels"], columns=confusion["labels"]))
     st.download_button("Download Evaluation Report", EVALUATION_PATH.read_bytes(), EVALUATION_PATH.name, "application/json")
 
 

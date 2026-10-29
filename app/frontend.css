@@ -1,117 +1,173 @@
 :root {
-  --canvas: #F3F1EC;
-  --surface: #FFFFFF;
-  --ink: #20252B;
-  --secondary: #535C66;
-  --muted: #46515D;
-  --border: #C9CDD2;
-  --sidebar: #20252B;
-  --sidebar-text: #FFFFFF;
-  --sidebar-secondary: #D4DAE0;
-  --orange: #D85A2A;
-  --orange-hover: #B94721;
-  --yellow: #F2C744;
-  --alert-bg: #FCE8E6;
-  --alert-text: #8A1C13;
-  --positive-bg: #E4F2E8;
-  --positive-text: #205C39;
-  --review-bg: #FFF1BF;
-  --review-text: #624700;
-  --info-bg: #E4EDF7;
-  --info-text: #243B53;
+  --black: #000000;
+  --white: #FFFFFF;
 }
 
 html, body {
   font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
-  color: var(--ink);
-  background: var(--canvas);
+  color: var(--white);
+  background: var(--black);
 }
 
-[data-testid="stAppViewContainer"] { background: var(--canvas); color: var(--ink); }
-[data-testid="stHeader"] { background: var(--canvas); }
-[data-testid="stSidebar"] { background: var(--sidebar); border-right: 1px solid var(--sidebar); color: var(--sidebar-text); }
+/* One authoritative monochrome theme for the Streamlit shell. */
+[data-testid="stAppViewContainer"], [data-testid="stHeader"],
+[data-testid="stMain"], [data-testid="stToolbar"],
+[data-testid="stDecoration"] { background: var(--black); color: var(--white); }
+[data-testid="stSidebar"] { background: var(--black); color: var(--white); border-right: 1px solid var(--white); }
 [data-testid="stSidebarNav"], [data-testid="stSidebarNav"] a,
-[data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { color: var(--sidebar-text); }
-[data-testid="stSidebarNav"] a { background: transparent; }
-[data-testid="stSidebarNav"] a:hover, [data-testid="stSidebarNav"] a[aria-current="page"] { color: var(--sidebar-text); background: #2B3036; }
-[data-testid="stSidebarNav"] svg { fill: var(--sidebar-secondary); }
-[data-testid="stSidebar"] .rail-brand { color: var(--sidebar-text); font-size: 1.45rem; font-weight: 700; letter-spacing: 0.08em; margin: 0 0 0.35rem; }
-[data-testid="stSidebar"] .rail-subtitle { color: var(--sidebar-secondary); font-size: 0.78rem; line-height: 1.35; margin: 0 0 2.25rem; }
-[data-testid="stSidebar"] .rail-kicker { color: var(--yellow); }
+[data-testid="stSidebarNav"] span, [data-testid="stSidebarNav"] p { color: var(--white); }
+[data-testid="stSidebarNav"] a, [data-testid="stSidebarNav"] a:hover,
+[data-testid="stSidebarNav"] a[aria-current="page"] { background: var(--black); color: var(--white); border: 1px solid var(--white); }
+[data-testid="stSidebarNav"] svg { fill: var(--white); }
+[data-testid="stSidebar"] .rail-brand, [data-testid="stSidebar"] .rail-subtitle,
+[data-testid="stSidebar"] .rail-kicker, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] legend, [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] legend,
-[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: var(--sidebar-text); }
-[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: var(--sidebar-secondary); }
-[data-testid="stSidebar"] [data-baseweb="radio"] label { color: var(--sidebar-text); border-left: 3px solid transparent; padding: 0.55rem 0.65rem; }
-[data-testid="stSidebar"] [data-baseweb="radio"] label:hover { background: #2B3036; }
-[data-testid="stSidebar"] [data-baseweb="radio"] label:has(input:checked) { border-left-color: var(--yellow); background: #2B3036; }
-[data-testid="stSidebar"] input, [data-testid="stSidebar"] textarea { color: var(--sidebar-text); background: #2B3036; }
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: var(--white); }
+[data-testid="stSidebar"] [data-baseweb="radio"] label,
+[data-testid="stSidebar"] [data-baseweb="radio"] label:hover,
+[data-testid="stSidebar"] [data-baseweb="radio"] label:has(input:checked) { color: var(--white); background: var(--black); border: 1px solid var(--white); }
+[data-testid="stRadio"] [role="radio"],
+[data-testid="stRadio"] [role="radio"] *,
+[data-testid="stCheckbox"] [role="checkbox"],
+[data-testid="stCheckbox"] [role="checkbox"] * {
+  color: var(--white) !important;
+  background-color: var(--black) !important;
+  border-color: var(--white) !important;
+  accent-color: var(--white) !important;
+}
+[data-testid="stRadio"] [role="radio"][aria-checked="true"] {
+  background-color: var(--white) !important;
+  color: var(--black) !important;
+}
+[data-testid="stRadio"] [role="radio"][aria-checked="true"] * { color: var(--black) !important; }
+[data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"] {
+  background-color: var(--white) !important;
+  color: var(--black) !important;
+}
+[data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"] * { color: var(--black) !important; }
+[data-testid="stRadio"] svg, [data-testid="stCheckbox"] svg,
+[data-testid="stRadio"] path, [data-testid="stCheckbox"] path {
+  fill: currentColor !important;
+  color: var(--white) !important;
+  stroke: var(--white) !important;
+}
+[data-baseweb="radio"] > div:first-child,
+[data-baseweb="checkbox"] > span {
+  background: var(--black) !important;
+  border: 2px solid var(--white) !important;
+  color: var(--white) !important;
+}
+[data-baseweb="radio"]:has(input:checked) > div:first-child,
+[data-baseweb="checkbox"]:has(input:checked) > span {
+  background: var(--white) !important;
+  border-color: var(--white) !important;
+  color: var(--black) !important;
+}
+[data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+  background: var(--black) !important;
+  border-color: var(--black) !important;
+}
+[data-baseweb="checkbox"]:has(input:checked) > span::after {
+  border-color: var(--black) !important;
+}
 
-.block-container { max-width: 1480px; padding: 2.5rem 4rem 5rem; }
-.hero { background: var(--sidebar); border: 1px solid var(--sidebar); padding: 3.2rem 3.5rem 3.5rem; margin: -1rem -1rem 2.5rem; }
-.hero h1 { color: var(--sidebar-text); font-size: clamp(3.4rem, 6vw, 4.5rem); line-height: 0.98; letter-spacing: -0.045em; font-weight: 600; margin: 0 0 1.25rem; }
-.hero p { color: var(--sidebar-secondary); font-size: 1rem; margin: 0; max-width: 42rem; }
-.kicker { color: var(--muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 0.45rem; }
-.page-title { color: var(--ink); font-size: 2.35rem; line-height: 1.1; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 1.5rem; }
-.section-title { color: var(--ink); font-size: 1.35rem; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; margin: 1.75rem 0 1rem; }
-.status-band { border-left: 5px solid var(--positive-text); background: var(--positive-bg); color: var(--positive-text); padding: 1rem 1.2rem; margin: 0.5rem 0 1.5rem; font-size: 1rem; font-weight: 600; }
-.status-band.alert { border-left-color: var(--alert-text); background: var(--alert-bg); color: var(--alert-text); }
-.status-band.review { border-left-color: var(--review-text); background: var(--review-bg); color: var(--review-text); }
-.status-band small { display: block; color: inherit; font-weight: 400; font-size: 0.84rem; margin-top: 0.25rem; }
-.metric-strip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); display: grid; grid-template-columns: repeat(4, 1fr); margin: 1rem 0 2rem; background: var(--surface); }
-.metric-strip > div { padding: 1rem 1.1rem; border-right: 1px solid var(--border); }
-.metric-strip > div:last-child { border-right: 0; }
-.metric-label { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; }
-.metric-value { color: var(--ink); font-size: 1.7rem; font-weight: 600; margin-top: 0.2rem; }
-.meta-line { color: var(--secondary); font-size: 0.84rem; border-bottom: 1px solid var(--border); padding-bottom: 0.7rem; margin-bottom: 1.25rem; }
-.notice { background: var(--surface); border: 1px solid var(--border); padding: 0.9rem 1rem; color: var(--secondary); font-size: 0.9rem; }
+header, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stToolbar"] * {
+  background: var(--black) !important;
+  color: var(--white) !important;
+  border-color: var(--white) !important;
+}
 
-/* Main text is scoped to the light canvas; sidebar text is scoped above. */
+.block-container { max-width: 1480px; padding: 2.5rem 4rem 5rem; background: var(--black); }
+.hero { background: var(--black); border: 1px solid var(--white); padding: 3.2rem 3.5rem 3.5rem; margin: -1rem -1rem 2.5rem; }
+.hero h1, .hero p, .kicker, .page-title, .section-title,
 main h1, main h2, main h3, main h4, main p, main label, main legend,
-main [data-testid="stMarkdownContainer"] { color: var(--ink); }
-main [data-testid="stCaptionContainer"], main [data-testid="stCaptionContainer"] * { color: var(--secondary); }
-main [data-testid="stMetricLabel"], main [data-testid="stMetricValue"], main [data-testid="stMetricDelta"] { color: var(--ink); }
+main [data-testid="stMarkdownContainer"], main [data-testid="stCaptionContainer"],
+main [data-testid="stCaptionContainer"] * { color: var(--white); }
+[data-testid="stMain"] h1, [data-testid="stMain"] h2, [data-testid="stMain"] h3,
+[data-testid="stMain"] h4, [data-testid="stMain"] p, [data-testid="stMain"] label,
+[data-testid="stMain"] legend, [data-testid="stMain"] [data-testid="stMarkdownContainer"],
+[data-testid="stMain"] [data-testid="stMarkdownContainer"] * {
+  color: var(--white) !important;
+}
+.hero h1 { font-size: clamp(3.4rem, 6vw, 4.5rem); line-height: 0.98; letter-spacing: -0.045em; font-weight: 600; margin: 0 0 1.25rem; }
+.hero p { font-size: 1rem; margin: 0; max-width: 42rem; }
+.kicker { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 0.45rem; }
+.page-title { font-size: 2.35rem; line-height: 1.1; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 1.5rem; }
+.section-title { font-size: 1.35rem; font-weight: 600; border-bottom: 1px solid var(--white); padding-bottom: 0.6rem; margin: 1.75rem 0 1rem; }
+.status-band, .status-band.alert, .status-band.review,
+.metric-strip, .notice, .evidence-panel { background: var(--black); color: var(--white); border: 1px solid var(--white); }
+.status-band { border-left: 5px solid var(--white); padding: 1rem 1.2rem; margin: 0.5rem 0 1.5rem; font-size: 1rem; font-weight: 600; }
+.status-band small, .metric-label, .metric-value, .meta-line { color: var(--white); }
+.status-band small { display: block; font-weight: 400; font-size: 0.84rem; margin-top: 0.25rem; }
+.metric-strip { display: grid; grid-template-columns: repeat(4, 1fr); margin: 1rem 0 2rem; }
+.metric-strip > div { padding: 1rem 1.1rem; border-right: 1px solid var(--white); }
+.metric-strip > div:last-child { border-right: 0; }
+.metric-label { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; }
+.metric-value { font-size: 1.7rem; font-weight: 600; margin-top: 0.2rem; }
+.meta-line { font-size: 0.84rem; border-bottom: 1px solid var(--white); padding-bottom: 0.7rem; margin-bottom: 1.25rem; }
+.notice { padding: 0.9rem 1rem; font-size: 0.9rem; }
 
-/* Streamlit alerts retain their semantic background; force only their text to a readable foreground. */
-main [data-testid="stAlert"] { border-radius: 0; border: 1px solid var(--border); }
+/* Alerts, expanders, tables, and diagnostics are black with white content. */
+main [data-testid="stAlert"], main [data-baseweb="notification"],
+main [data-testid="stExpander"], main [data-testid="stExpander"] details,
+main [data-testid="stDataFrame"], main [data-testid="stTable"],
+main table, main thead, main tbody, main tr, main th, main td {
+  background: var(--black); color: var(--white); border-color: var(--white);
+}
 main [data-testid="stAlert"] [data-testid="stMarkdownContainer"],
-main [data-testid="stAlert"] [data-testid="stMarkdownContainer"] p { color: var(--info-text); }
+main [data-testid="stAlert"] [data-testid="stMarkdownContainer"] p,
+main [data-baseweb="notification"] *, main [data-testid="stExpander"] *,
+main [data-testid="stDataFrame"] *, main [data-testid="stTable"] *,
+main table, main table * { color: var(--white) !important; background: var(--black) !important; border-color: var(--white) !important; }
+[data-testid="stTable"], [data-testid="stTable"] table,
+[data-testid="stTable"] th, [data-testid="stTable"] td,
+[data-testid="stTable"] tr, [data-testid="stTable"] * {
+  color: var(--white) !important;
+  background: var(--black) !important;
+  border-color: var(--white) !important;
+}
+main [data-testid="stExpander"], main [data-testid="stDataFrame"], main [data-testid="stTable"],
+main table { border: 1px solid var(--white); border-radius: 0; }
+main th, main td { border: 1px solid var(--white); padding: 0.55rem 0.7rem; }
+main tr:hover, main tr:focus-within { background: var(--black); color: var(--white); outline: 1px solid var(--white); }
 
-/* Light controls: dark labels, dark input text, visible borders and focus states. */
+/* Controls use a black surface, white text, borders, and focus outlines. */
 main input, main textarea, main [data-baseweb="select"] > div,
-main [data-testid="stFileUploader"] section { color: var(--ink); background: var(--surface); border-color: var(--border); }
-main input::placeholder, main textarea::placeholder { color: var(--muted); opacity: 1; }
+main [data-testid="stFileUploader"] section, main [data-testid="stFileUploaderDropzone"] {
+  background: var(--black); color: var(--white); border: 1px solid var(--white);
+}
+main input::placeholder, main textarea::placeholder { color: var(--white); }
 main input:focus, main textarea:focus, main [data-baseweb="select"] > div:focus-within,
-main [data-testid="stFileUploader"] section:focus-within { outline: 2px solid var(--orange); outline-offset: 1px; }
+main [data-testid="stFileUploader"] section:focus-within { outline: 2px solid var(--white); outline-offset: 1px; }
+main [data-baseweb="popover"], main [role="listbox"], main [role="option"] {
+  background: var(--black); color: var(--white); border-color: var(--white);
+}
+main [role="option"]:hover, main [role="option"][aria-selected="true"] { background: var(--black); color: var(--white); outline: 1px solid var(--white); }
 main [data-testid="stCheckbox"] label, main [data-testid="stSlider"] label,
-main [data-testid="stNumberInput"] label, main [data-testid="stFileUploader"] label { color: var(--ink); }
+main [data-testid="stNumberInput"] label, main [data-testid="stFileUploader"] label { color: var(--white); }
+main [data-testid="stCheckbox"] svg, main [data-testid="stRadio"] svg { fill: var(--white); color: var(--white); }
+main [data-baseweb="slider"] [role="slider"], main [data-baseweb="slider"] div { background: var(--white); border-color: var(--white); }
+main [data-baseweb="slider"] [role="slider"] { border: 1px solid var(--white); }
 
-/* Buttons and downloads */
-button, [data-testid="stDownloadButton"] button, [data-testid="stFileUploader"] section { border-radius: 0; }
-main [data-testid="stDownloadButton"] button, main .stButton > button { border: 1px solid var(--orange); color: var(--ink); background: var(--surface); font-weight: 600; }
-main [data-testid="stDownloadButton"] button:hover, main .stButton > button:hover { border-color: var(--orange-hover); color: var(--sidebar-text); background: var(--orange-hover); }
-main .stButton > button[kind="primary"] { background: var(--orange); border-color: var(--orange); color: var(--sidebar-text); }
-main .stButton > button[kind="primary"]:hover { background: var(--orange-hover); border-color: var(--orange-hover); }
-main button:focus-visible, main [data-testid="stDownloadButton"] button:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+/* Every action, including downloads, remains black with white text. */
+button, main button, main [data-testid="stDownloadButton"] button,
+main .stButton > button { background: var(--black); color: var(--white); border: 1px solid var(--white); border-radius: 0; }
+main button:hover, main [data-testid="stDownloadButton"] button:hover,
+main .stButton > button:hover, main .stButton > button[kind="primary"]:hover {
+  background: var(--black); color: var(--white); border: 1px solid var(--white); }
+main button:focus-visible, main [data-testid="stDownloadButton"] button:focus-visible {
+  outline: 2px solid var(--white); outline-offset: 2px; }
+main button:disabled, main [data-testid="stDownloadButton"] button:disabled {
+  background: var(--black); color: var(--white); border: 1px solid var(--white); }
 
-/* Tables and expandable diagnostics remain light with dark content. */
-main [data-testid="stDataFrame"], main [data-testid="stTable"] { border: 1px solid var(--border); background: var(--surface); }
-main [data-testid="stDataFrame"] *, main [data-testid="stTable"] * { color: var(--ink); }
-main [data-testid="stExpander"] { border: 1px solid var(--border); border-radius: 0; background: var(--surface); }
-main [data-testid="stExpander"] summary, main [data-testid="stExpander"] summary p,
-main [data-testid="stExpander"] [data-testid="stMarkdownContainer"],
-main [data-testid="stExpander"] [data-testid="stJson"] { color: var(--ink); }
-
-div[data-testid="stImage"] img { border: 1px solid var(--border); }
-hr { border-color: var(--border); }
-
+div[data-testid="stImage"] img { border: 1px solid var(--white); }
+hr { border-color: var(--white); }
 @media (max-width: 900px) {
   .block-container { padding: 1.5rem 1.25rem 3rem; }
   .hero { padding: 2rem 1.5rem 2.25rem; margin: -0.5rem -0.5rem 1.75rem; }
   .hero h1 { font-size: 3.2rem; }
   .metric-strip { grid-template-columns: repeat(2, 1fr); }
   .metric-strip > div:nth-child(2) { border-right: 0; }
-  .metric-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  .metric-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--white); }
 }
